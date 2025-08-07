@@ -78,8 +78,14 @@ function App() {
     }
     ws.onclose = () => {
       setStatus('disconnected')
-      // try next candidate next time
+      // rotate url for next connect attempt
       urlIndexRef.current = (urlIndexRef.current + 1) % wsUrlCandidates.length
+      // auto-retry after short delay if not joined
+      if (!roomId) {
+        setTimeout(() => {
+          if (wsRef.current === ws && status !== 'connected') connectAndJoin()
+        }, 1500)
+      }
     }
     ws.onerror = (e) => {
       setJoinError('WS_CONNECT_FAILED')
@@ -181,7 +187,7 @@ function App() {
     return () => window.removeEventListener('resize', resize)
   }, [])
 
-  // Heartbeat ping using wsRef safely
+  // Heartbeat ping using wsRef safely; also keep-alive to avoid disconnects
   useEffect(() => {
     const id = setInterval(() => {
       const ws = wsRef.current

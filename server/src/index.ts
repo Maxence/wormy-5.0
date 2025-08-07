@@ -329,9 +329,12 @@ setInterval(() => {
   (wss.clients as Set<WebSocket>).forEach((client) => {
     const meta = wsToMeta.get(client);
     if (!meta) return;
-    const noPongFor = meta.lastPingSentAt ? now - (meta.lastPongAt ?? 0) : 0;
+    let noPongFor = 0;
+    if (meta.lastPingSentAt) {
+      noPongFor = meta.lastPongAt ? now - meta.lastPongAt : now - meta.lastPingSentAt;
+    }
     const idleFor = now - (meta.lastMessageAt ?? 0);
-    if (noPongFor > 15000 || idleFor > 600000) { // 15s no pong or 10 min idle
+    if (noPongFor > 30000 || idleFor > 600000) { // 30s no pong or 10 min idle
       try { client.close(4002, 'inactive'); } catch {}
       wsToMeta.delete(client);
     }
