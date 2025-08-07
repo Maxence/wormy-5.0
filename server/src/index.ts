@@ -484,23 +484,40 @@ setInterval(() => {
   }
 }, 1000 / TICK_RATE);
 
-// Broadcast snapshots to players
+// Broadcast snapshots to players (per-player filtered payload)
 setInterval(() => {
   for (const room of roomManager.listRooms()) {
     if (room.isClosed) continue;
+    const now = Date.now();
     const lb = Array.from(room.players.values())
       .sort((a, b) => b.score - a.score)
       .slice(0, 10)
       .map((p) => ({ id: p.id, name: p.name, score: Math.round(p.score) }));
-    const foods = room.foods.slice(0, 300).map((f) => ({ id: f.id, position: { x: Math.round(f.position.x), y: Math.round(f.position.y) }, value: Math.round(f.value * 10) / 10 }));
-    const players = Array.from(room.players.values()).map((p) => ({ id: p.id, name: p.name, score: Math.round(p.score), position: { x: Math.round(p.position.x), y: Math.round(p.position.y) } }));
-    const payload = JSON.stringify({ t: 'state', roomId: room.id, leaderboard: lb, players, foods, mapSize: room.config.mapSize, serverNow: Date.now() });
-    for (const p of room.players.values()) {
-      if (p.ws.readyState === p.ws.OPEN) {
-        try { p.ws.send(payload); } catch {}
+    const playersPayload = Array.from(room.players.values()).map((p) => ({ id: p.id, name: p.name, score: Math.round(p.score), position: { x: Math.round(p.position.x), y: Math.round(p.position.y) } }));
+    for (const recipient of room.players.values()) {
+      if (recipient.ws.readyState !== recipient.ws.OPEN) continue;
+      // foods near recipient
+      const viewR = 3000;
+      const r2 = viewR * viewR;
+      const visibleFoods: { id: string; position: { x: number; y: number }; value: number }[] = [];
+      for (const f of room.foods) {
+        const dx = f.position.x - recipient.position.x; const dy = f.position.y - recipient.position.y;
+        if (dx*dx + dy*dy <= r2) {
+          visibleFoods.push({ id: f.id, position: { x: Math.round(f.position.x), y: Math.round(f.position.y) }, value: Math.round(f.value * 10) / 10 });
+          if (visibleFoods.length >= 400) break;
+        }
       }
+      // provide recipient's own body (decimated)
+      const body = room.players.get(recipient.id)?.bodyPoints ?? [];
+      const selfBody: { x: number; y: number }[] = [];
+      for (let i = Math.max(0, body.length - 180); i < body.length; i += 3) {
+        const pt = body[i];
+        selfBody.push({ x: Math.round(pt.x), y: Math.round(pt.y) });
+      }
+      const payload = JSON.stringify({ t: 'state', roomId: room.id, leaderboard: lb, players: playersPayload, foods: visibleFoods, selfBody, mapSize: room.config.mapSize, serverNow: now });
+      try { recipient.ws.send(payload); } catch {}
     }
-    room.lastBroadcastAt = Date.now();
+    room.lastBroadcastAt = now;
   }
 }, 1000 / BROADCAST_RATE);
 

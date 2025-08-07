@@ -3,7 +3,7 @@ import Phaser from 'phaser'
 export type Vector2 = { x: number; y: number }
 export type PlayerState = { id: string; name: string; score: number; position: Vector2 }
 export type FoodState = { id: string; position: Vector2; value: number }
-export type WsState = { t: 'state'; roomId: string; leaderboard: { id: string; name: string; score: number }[]; players: PlayerState[]; foods: FoodState[]; mapSize: number; serverNow: number }
+export type WsState = { t: 'state'; roomId: string; leaderboard: { id: string; name: string; score: number }[]; players: PlayerState[]; foods: FoodState[]; selfBody?: Vector2[]; mapSize: number; serverNow: number }
 
 function computeZoom(score: number): number {
   const z = 1 / (1 + Math.sqrt(Math.max(0, score)) * 0.03)
@@ -20,6 +20,7 @@ export default class GameScene extends Phaser.Scene {
   private dotTextureKey = 'dot'
   private pointerWorld: Vector2 = { x: 0, y: 0 }
   private grid!: Phaser.GameObjects.Graphics
+  private trailGraphics!: Phaser.GameObjects.Graphics
 
   constructor() {
     super(GameScene.KEY)
@@ -45,6 +46,7 @@ export default class GameScene extends Phaser.Scene {
     }
     this.cameras.main.setBackgroundColor('#0a0a0a')
     this.grid = this.add.graphics({ depth: 1 })
+    this.trailGraphics = this.add.graphics({ depth: 4 })
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
       const wp = this.cameras.main.getWorldPoint(p.x, p.y)
       this.pointerWorld = { x: wp.x, y: wp.y }
@@ -133,6 +135,16 @@ export default class GameScene extends Phaser.Scene {
       this.grid.moveTo(left, y)
       this.grid.lineTo(right, y)
       this.grid.strokePath()
+    }
+
+    // draw self trail if provided
+    this.trailGraphics.clear()
+    if (s.selfBody && s.selfBody.length > 2) {
+      this.trailGraphics.lineStyle(6, 0xffaa00, 0.6)
+      this.trailGraphics.beginPath()
+      this.trailGraphics.moveTo(s.selfBody[0].x, s.selfBody[0].y)
+      for (let i = 1; i < s.selfBody.length; i++) this.trailGraphics.lineTo(s.selfBody[i].x, s.selfBody[i].y)
+      this.trailGraphics.strokePath()
     }
   }
 
