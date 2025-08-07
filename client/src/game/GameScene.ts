@@ -175,6 +175,8 @@ export default class GameScene extends Phaser.Scene {
   getPointerWorld(): Vector2 { return this.pointerWorld }
 
   update(time: number, deltaMs: number): void {
+    // ensure we populate targets and visuals every frame from latest snapshot
+    this.renderNow()
     const dt = Math.max(0.001, deltaMs / 1000)
     const k = 1 - Math.exp(-this.smoothingLambda * dt)
     // smooth move players toward targets
