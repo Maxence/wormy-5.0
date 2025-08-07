@@ -198,8 +198,8 @@ export default class GameScene extends Phaser.Scene {
       for (let i = this.myPath.length - 1; i >= 0; i--) {
         const pt = this.myPath[i]
         const t = 1 - i / Math.max(1, this.myPath.length - 1)
-        const rr = r * (0.5 + 0.5 * t)
-        this.trailGraphics.fillStyle(0xffaa00, 0.8)
+        const rr = r * (0.55 + 0.45 * t)
+        this.trailGraphics.fillStyle(0xffaa00, 0.9)
         this.trailGraphics.fillCircle(pt.x, pt.y, rr)
       }
     }

@@ -190,6 +190,11 @@ function computeSpeed(score: number, boosting: boolean): number {
   return boosting ? base * 1.55 : base;
 }
 
+function computeSuctionRadius(score: number): number {
+  // Suction range scales with size but capped to avoid far vacuuming
+  return Math.min(600, 120 + Math.sqrt(Math.max(0, score)) * 14);
+}
+
 function trimBodyToLength(points: Vector2[], targetLength: number): void {
   if (points.length <= 1) return;
   let total = 0;
@@ -369,15 +374,27 @@ setInterval(() => {
       }
     }
 
-    // Food consumption
+    // Food consumption + suction (attract nearby food)
     const toKeep: Food[] = [];
     for (const food of room.foods) {
       let eaten = false;
       for (const player of room.players.values()) {
-        const r = computeRadius(player.score);
-        if (distanceSquared(player.position, food.position) <= (r*r)) {
+        const bodyR = computeRadius(player.score);
+        const suckR = computeSuctionRadius(player.score);
+        const dx = food.position.x - player.position.x;
+        const dy = food.position.y - player.position.y;
+        const d2 = dx*dx + dy*dy;
+        // eat if touching body
+        if (d2 <= bodyR * bodyR) {
           player.score += food.value;
           eaten = true; break;
+        }
+        // suction if in suction range
+        if (d2 <= suckR * suckR) {
+          const d = Math.max(1, Math.sqrt(d2));
+          const pull = Math.min(220, 140 + Math.sqrt(Math.max(0, player.score)) * 6);
+          food.position.x -= (dx / d) * (pull * dt);
+          food.position.y -= (dy / d) * (pull * dt);
         }
       }
       if (!eaten) toKeep.push(food);
