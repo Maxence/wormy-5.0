@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import Phaser from 'phaser'
-import GameScene, { WsState as SceneWsState } from './game/GameScene'
+import GameScene from './game/GameScene'
+import type { WsState as SceneWsState } from './game/GameScene'
 
 type Vector2 = { x: number; y: number }
 type PlayerState = { id: string; name: string; score: number; position: Vector2 }
@@ -40,6 +41,8 @@ function App() {
   const lastPings = useRef<Map<number, number>>(new Map())
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const minimapRef = useRef<HTMLCanvasElement | null>(null)
+  const phaserContainerRef = useRef<HTMLDivElement | null>(null)
+  const phaserSceneRef = useRef<GameScene | null>(null)
   const mousePos = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
   const playerHistories = useRef<Map<string, Vector2[]>>(new Map())
   type Particle = { x: number; y: number; vx: number; vy: number; life: number; maxLife: number; size: number; color: string }
@@ -177,23 +180,32 @@ function App() {
 
   // Initialize Phaser game
   useEffect(() => {
-    if (!canvasRef.current) return
+    if (!phaserContainerRef.current) return
     const cfg: Phaser.Types.Core.GameConfig = {
       type: Phaser.AUTO,
       width: window.innerWidth,
       height: window.innerHeight,
-      parent: canvasRef.current.parentElement || undefined,
+      parent: phaserContainerRef.current,
       scene: [GameScene],
       physics: { default: 'arcade' },
       backgroundColor: '#0a0a0a'
     }
     const game = new Phaser.Game(cfg)
+    const captureScene = () => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const scene = (game.scene.getScene(GameScene.KEY) as any) as GameScene
+        if (scene) phaserSceneRef.current = scene
+        else setTimeout(captureScene, 50)
+      } catch { setTimeout(captureScene, 50) }
+    }
+    captureScene()
     const onResize = () => {
       game.scale.resize(window.innerWidth, window.innerHeight)
       const mini = minimapRef.current; if (mini) { mini.width = 200; mini.height = 200 }
     }
     window.addEventListener('resize', onResize)
-    return () => { window.removeEventListener('resize', onResize); game.destroy(true) }
+    return () => { phaserSceneRef.current = null; window.removeEventListener('resize', onResize); game.destroy(true) }
   }, [])
 
   // Heartbeat ping using wsRef safely; also keep-alive to avoid disconnects
@@ -210,19 +222,15 @@ function App() {
 
   // Feed snapshots into Phaser scene
   useEffect(() => {
-    const scene = (Phaser as any).Scenes?.Scenes ? null : null
-    const g = (Phaser as any).Games as any
-    // quick access to our scene instance
-    const game = (Phaser as any).Games?.getGames ? (Phaser as any).Games.getGames()[0] : (window as any).Phaser?.GAMES?.[0]
-    const sceneInstance = game?.scene?.keys?.[GameScene.KEY] as GameScene | undefined
-    if (sceneInstance && currSnapshotRef.current) {
-      sceneInstance.setSnapshot(currSnapshotRef.current as unknown as SceneWsState, playerId)
+    const scene = phaserSceneRef.current
+    if (scene && currSnapshotRef.current) {
+      scene.setSnapshot(currSnapshotRef.current as unknown as SceneWsState, playerId)
     }
   }, [players, foods, leaderboard, playerId])
 
   return (
     <>
-      <div ref={canvasRef as any} style={{ position: 'fixed', inset: 0 }} />
+      <div ref={phaserContainerRef} style={{ position: 'fixed', inset: 0 }} />
       <div style={{ position: 'fixed', top: 8, right: 8, background: 'rgba(0,0,0,0.5)', padding: 8, color: '#fff', borderRadius: 6 }}>
         <div>Player: <input value={playerName} onChange={(e) => setPlayerName(e.target.value)} /></div>
         <div>Room: {roomId ?? '—'}</div>
