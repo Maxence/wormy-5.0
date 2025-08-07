@@ -30,8 +30,29 @@ app.get('/admin/stats', (_req, res) => {
 });
 
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
-const wssAdmin = new WebSocketServer({ server, path: '/admin-ws' });
+// Route upgrades manually for robustness
+const wss = new WebSocketServer({ noServer: true });
+const wssAdmin = new WebSocketServer({ noServer: true });
+
+server.on('upgrade', (req, socket, head) => {
+  try {
+    const urlStr = req.url || '/';
+    const u = new URL(urlStr, 'http://localhost');
+    if (u.pathname === '/ws') {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit('connection', ws, req);
+      });
+    } else if (u.pathname === '/admin-ws') {
+      wssAdmin.handleUpgrade(req, socket, head, (ws) => {
+        wssAdmin.emit('connection', ws, req);
+      });
+    } else {
+      socket.destroy();
+    }
+  } catch {
+    socket.destroy();
+  }
+});
 
 // --- Core types ---
 type Vector2 = { x: number; y: number };
