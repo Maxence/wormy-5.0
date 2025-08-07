@@ -22,7 +22,7 @@ function useAdminRooms(apiBase: string, token: string | null) {
 }
 
 function useAdminStats(apiBase: string, token: string | null) {
-  const [stats, setStats] = useState<{ totals: { players: number; rooms: number }, rooms: { id: string; players: number; maxPlayers: number; isClosed: boolean }[] } | null>(null)
+  const [stats, setStats] = useState<{ totals: { players: number; rooms: number; memMB?: number }, rooms: { id: string; players: number; maxPlayers: number; isClosed: boolean; p95TickMs?: number; broadcastHz?: number }[], uptimeSec?: number } | null>(null)
   useEffect(() => {
     if (!token) return
     const fetchStats = async () => {
@@ -167,11 +167,13 @@ function App() {
           <button onClick={openRoom} style={{ marginLeft: 8 }}>Open room</button>
           <div style={{ marginTop: 8 }}>
             <strong>Global stats</strong>
-            <div>Players: {stats?.totals.players ?? '—'} | Rooms: {stats?.totals.rooms ?? '—'}</div>
+            <div>Players: {stats?.totals.players ?? '—'} | Rooms: {stats?.totals.rooms ?? '—'} | Mem: {stats?.totals.memMB ?? '—'} MB | Uptime: {stats?.uptimeSec ?? '—'} s</div>
           </div>
           <h2>Rooms</h2>
           <ul>
-            {rooms.map(r => (
+            {rooms.map(r => {
+              const rStats = stats?.rooms.find(x => x.id === r.id)
+              return (
               <li key={r.id}>
                 <button onClick={() => setSelectedRoom(r.id)} disabled={selectedRoom===r.id}>
                   {r.id.slice(0,8)} — {r.players}/{r.maxPlayers}
@@ -179,8 +181,13 @@ function App() {
                 <button onClick={() => closeRoom(r.id)} style={{ marginLeft: 8 }}>
                   Close
                 </button>
+                {rStats ? (
+                  <span style={{ marginLeft: 8, opacity: 0.8 }}>
+                    p95: {rStats.p95TickMs}ms | bHz: {rStats.broadcastHz}
+                  </span>
+                ) : null}
               </li>
-            ))}
+            )})}
           </ul>
           <div>
             <h3>Ban</h3>

@@ -164,6 +164,7 @@ function App() {
   useEffect(() => {
     let raf = 0
     let lastTs = performance.now()
+    let fpsAcc = 0; let fpsCount = 0; let fpsDisplay = 0
     const draw = () => {
       const nowTs = performance.now()
       const dt = Math.min(0.05, Math.max(0.0, (nowTs - lastTs) / 1000))
@@ -336,6 +337,10 @@ function App() {
         ctx.fillText(`${e.name} — ${e.score}`, 20, y)
         y += 18
       }
+      // fps
+      fpsAcc += 1/dt; fpsCount++
+      if (fpsCount >= 10) { fpsDisplay = Math.round(fpsAcc / fpsCount); fpsAcc = 0; fpsCount = 0 }
+      ctx.fillText(`FPS: ${fpsDisplay}`, 20, y)
 
       const mini = minimapRef.current
       if (mini) {

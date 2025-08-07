@@ -19,9 +19,14 @@ app.use('/admin', (req, res, next) => {
 });
 
 app.get('/admin/stats', (_req, res) => {
-  const rooms = roomManager.listRooms().map((r) => ({ id: r.id, players: r.players.size, maxPlayers: r.config.maxPlayers, isClosed: r.isClosed }));
-  const totals = { players: rooms.reduce((a, r) => a + r.players, 0), rooms: rooms.length };
-  res.json({ rooms, totals });
+  const rooms = roomManager.listRooms().map((r) => {
+    const samples = r.tickDurationsMs.slice(-100).sort((a,b)=>a-b)
+    const p95 = samples.length ? samples[Math.floor(samples.length*0.95)] : 0
+    const broadcastHz = r.lastBroadcastAt ? Math.min(5, 1000 / Math.max(1, Date.now() - r.lastBroadcastAt)) : 0
+    return { id: r.id, players: r.players.size, maxPlayers: r.config.maxPlayers, isClosed: r.isClosed, p95TickMs: Number(p95.toFixed(2)), broadcastHz: Number(broadcastHz.toFixed(2)) };
+  });
+  const totals = { players: rooms.reduce((a, r) => a + r.players, 0), rooms: rooms.length, memMB: Math.round(process.memoryUsage().heapUsed/1e6) };
+  res.json({ rooms, totals, uptimeSec: Math.round(process.uptime()) });
 });
 
 const server = http.createServer(app);
@@ -56,6 +61,8 @@ type GameRoom = {
   spectators: Set<WebSocket>;
   isClosed: boolean;
   foods: Food[];
+  tickDurationsMs: number[]; // ring buffer
+  lastBroadcastAt: number;
 };
 
 type Food = { id: string; position: Vector2; value: number };
@@ -98,6 +105,8 @@ class RoomManager {
       spectators: new Set(),
       isClosed: false,
       foods: [],
+      tickDurationsMs: [],
+      lastBroadcastAt: 0,
     };
     this.rooms.set(id, room);
     return room;
@@ -315,6 +324,7 @@ setInterval(() => {
   const dt = 1 / TICK_RATE;
   for (const room of roomManager.listRooms()) {
     if (room.isClosed) continue;
+    const t0 = (globalThis as any).performance?.now ? (globalThis as any).performance.now() : Date.now();
     // Move players (bounded turn rate)
     for (const player of room.players.values()) {
       // limit rotation to ~2 rad/s
@@ -424,6 +434,10 @@ setInterval(() => {
         room.foods.push({ id: uuidv4(), position: pos, value: 1 + Math.random() * 3 });
       }
     }
+    const t1 = (globalThis as any).performance?.now ? (globalThis as any).performance.now() : Date.now();
+    const dur = t1 - t0;
+    room.tickDurationsMs.push(dur);
+    if (room.tickDurationsMs.length > 200) room.tickDurationsMs.shift();
   }
 }, 1000 / TICK_RATE);
 
@@ -443,6 +457,7 @@ setInterval(() => {
         try { p.ws.send(payload); } catch {}
       }
     }
+    room.lastBroadcastAt = Date.now();
   }
 }, 1000 / BROADCAST_RATE);
 
