@@ -135,8 +135,9 @@ function App() {
           prevSnapshotRef.current = currSnapshotRef.current
           currSnapshotRef.current = msg
           setLeaderboard(msg.leaderboard)
-          setPlayers(msg.players)
-          setFoods(msg.foods)
+          // quantize client-side for fewer canvas/pixi updates
+          setPlayers(msg.players.map(p => ({ ...p, position: { x: Math.round(p.position.x / 2) * 2, y: Math.round(p.position.y / 2) * 2 } })))
+          setFoods(msg.foods.map(f => ({ ...f, position: { x: Math.round(f.position.x / 2) * 2, y: Math.round(f.position.y / 2) * 2 } })))
           setMapSize(msg.mapSize)
         }
       } catch {}

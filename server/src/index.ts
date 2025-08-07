@@ -496,18 +496,18 @@ setInterval(() => {
     for (const recipient of room.players.values()) {
       if (recipient.ws.readyState !== recipient.ws.OPEN) continue;
       // foods near recipient
-      const viewR = 2200;
+      const viewR = 1800;
       const r2 = viewR * viewR;
       const visibleFoods: { id: string; position: { x: number; y: number }; value: number }[] = [];
       for (const f of room.foods) {
         const dx = f.position.x - recipient.position.x; const dy = f.position.y - recipient.position.y;
         if (dx*dx + dy*dy <= r2) {
           visibleFoods.push({ id: f.id, position: { x: Math.round(f.position.x), y: Math.round(f.position.y) }, value: Math.round(f.value * 10) / 10 });
-          if (visibleFoods.length >= 400) break;
+          if (visibleFoods.length >= 250) break;
         }
       }
       // players near recipient (always include self)
-      const viewPlayersR = 3200;
+      const viewPlayersR = 2600;
       const pr2 = viewPlayersR * viewPlayersR;
       const playersPayload: { id: string; name: string; score: number; position: { x: number; y: number } }[] = [];
       for (const p of room.players.values()) {
@@ -518,7 +518,7 @@ setInterval(() => {
         const dx = p.position.x - recipient.position.x; const dy = p.position.y - recipient.position.y;
         if (dx*dx + dy*dy <= pr2) {
           playersPayload.push({ id: p.id, name: p.name, score: Math.round(p.score), position: { x: Math.round(p.position.x), y: Math.round(p.position.y) } });
-          if (playersPayload.length >= 60) break;
+          if (playersPayload.length >= 40) break;
         }
       }
       // provide recipient's own body (decimated)

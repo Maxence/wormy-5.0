@@ -23,7 +23,7 @@ export default class GameScene extends Phaser.Scene {
   private pointerWorld: Vector2 = { x: 0, y: 0 }
   private grid!: Phaser.GameObjects.Graphics
   private trailGraphics!: Phaser.GameObjects.Graphics
-  private smoothingLambda = 20 // stronger smoothing for high Hz updates
+  private smoothingLambda = 28 // stronger smoothing for high Hz updates
 
   constructor() {
     super(GameScene.KEY)
@@ -115,7 +115,7 @@ export default class GameScene extends Phaser.Scene {
     // grid
     this.grid.clear()
     this.grid.lineStyle(1, 0x333333, 1)
-    const step = 400
+    const step = 600
     const left = Math.floor((cam.worldView.x - margin) / step) * step
     const right = Math.ceil((cam.worldView.right + margin) / step) * step
     const top = Math.floor((cam.worldView.y - margin) / step) * step
