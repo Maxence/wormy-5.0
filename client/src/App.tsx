@@ -52,7 +52,7 @@ function App() {
 
   const wsUrlCandidates = useMemo(() => {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-    const hosts = [location.hostname, '127.0.0.1', 'localhost']
+    const hosts = ['127.0.0.1', 'localhost', location.hostname]
     const port = 4000
     return hosts.map(h => `${proto}://${h}:${port}/ws`)
   }, [])
