@@ -173,13 +173,15 @@ export default class GameScene extends Phaser.Scene {
     this.trailGraphics.clear()
     const myTarget = this.playerTargets.get(this.playerId || '')
     if (myTarget) {
-      const head = { x: myTarget.x, y: myTarget.y }
+      // Use the smoothed sprite head position to avoid trail getting ahead of the head
+      const spr = this.playerSprites.get(this.playerId || '')
+      const head = { x: spr ? spr.x : myTarget.x, y: spr ? spr.y : myTarget.y }
       if (this.myPath.length === 0) this.myPath.push({ ...head })
       const last = this.myPath[0]
       const dx = head.x - last.x, dy = head.y - last.y
       const dist = Math.hypot(dx, dy)
       if (dist > 0) {
-        const steps = Math.floor(dist / this.segmentDist)
+        const steps = Math.min(3, Math.floor(dist / this.segmentDist)) // cap per-frame insertion to avoid popping
         for (let i = 1; i <= steps; i++) {
           const t = i / Math.max(1, steps)
           this.myPath.unshift({ x: last.x + dx * t, y: last.y + dy * t })
@@ -210,9 +212,7 @@ export default class GameScene extends Phaser.Scene {
       this.trailGraphics.moveTo(pathToDraw[0].x, pathToDraw[0].y)
       for (let i = 1; i < pathToDraw.length; i++) this.trailGraphics.lineTo(pathToDraw[i].x, pathToDraw[i].y)
       this.trailGraphics.strokePath()
-      // draw a head disk on top
-      this.trailGraphics.fillStyle(0xff6600, 1)
-      this.trailGraphics.fillCircle(head.x, head.y, r * 0.9)
+      // Head disk is provided by the red head sprite (kept above by depth)
     }
   }
 
