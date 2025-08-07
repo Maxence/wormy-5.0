@@ -461,6 +461,22 @@ setInterval(() => {
         room.foods.push({ id: uuidv4(), position: pos, value: 1 + Math.random() * 3 });
       }
     }
+    // Ensure some food near each player to avoid empty screen
+    for (const p of room.players.values()) {
+      let near = 0
+      const radius = 1500
+      const r2 = radius * radius
+      for (const f of room.foods) {
+        const dx = f.position.x - p.position.x; const dy = f.position.y - p.position.y
+        if (dx*dx + dy*dy <= r2) { near++; if (near >= 80) break }
+      }
+      if (near < 80) {
+        const need = 80 - near
+        for (let i = 0; i < need; i++) {
+          room.foods.push({ id: uuidv4(), position: { x: p.position.x + jitter(600), y: p.position.y + jitter(600) }, value: 1 })
+        }
+      }
+    }
     const t1 = (globalThis as any).performance?.now ? (globalThis as any).performance.now() : Date.now();
     const dur = t1 - t0;
     room.tickDurationsMs.push(dur);
