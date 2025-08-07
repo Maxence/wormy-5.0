@@ -66,6 +66,9 @@ type ClientMeta = {
   lastPingId: number | null;
   lastPingSentAt: number | null;
   rttMs: number | null;
+  lastPongAt: number | null;
+  lastInputAt: number | null;
+  lastMessageAt: number | null;
 };
 
 type AdminSpectatorMeta = {
@@ -127,7 +130,7 @@ class RoomManager {
   }
 }
 
-const DEFAULT_ROOM_CONFIG: RoomConfig = {
+let DEFAULT_ROOM_CONFIG: RoomConfig = {
   mapSize: 5000,
   maxPlayers: 100,
   foodCoveragePercent: 2,
@@ -192,6 +195,9 @@ wss.on('connection', (ws: WebSocket) => {
     lastPingId: null,
     lastPingSentAt: null,
     rttMs: null,
+    lastPongAt: null,
+    lastInputAt: null,
+    lastMessageAt: Date.now(),
   });
   ws.send(JSON.stringify({ t: 'welcome' }));
   ws.on('message', (data) => {
@@ -228,6 +234,7 @@ wss.on('connection', (ws: WebSocket) => {
       if (msg?.t === 'input') {
         const meta = wsToMeta.get(ws);
         if (!meta?.roomId) return;
+        meta.lastInputAt = Date.now();
         const room = roomManager.getRoom(meta.roomId);
         if (!room) return;
         const player = room.players.get(msg.playerId);
@@ -242,6 +249,7 @@ wss.on('connection', (ws: WebSocket) => {
         const meta = wsToMeta.get(ws);
         if (meta && meta.lastPingId === msg.pingId && typeof meta.lastPingSentAt === 'number') {
           meta.rttMs = Date.now() - meta.lastPingSentAt;
+          meta.lastPongAt = Date.now();
           ws.send(JSON.stringify({ t: 'latency', rttMs: meta.rttMs }));
         }
         return;
@@ -253,6 +261,8 @@ wss.on('connection', (ws: WebSocket) => {
       }
     } catch {
     }
+    const meta = wsToMeta.get(ws);
+    if (meta) meta.lastMessageAt = Date.now();
   });
   ws.on('close', () => {
     const meta = wsToMeta.get(ws);
@@ -282,6 +292,21 @@ setInterval(() => {
     }
   });
 }, 2000);
+
+// Disconnect inactive or unresponsive clients
+setInterval(() => {
+  const now = Date.now();
+  (wss.clients as Set<WebSocket>).forEach((client) => {
+    const meta = wsToMeta.get(client);
+    if (!meta) return;
+    const noPongFor = meta.lastPingSentAt ? now - (meta.lastPongAt ?? 0) : 0;
+    const idleFor = now - (meta.lastMessageAt ?? 0);
+    if (noPongFor > 15000 || idleFor > 600000) { // 15s no pong or 10 min idle
+      try { client.close(4002, 'inactive'); } catch {}
+      wsToMeta.delete(client);
+    }
+  });
+}, 5000);
 
 // --- Simulation loop per room ---
 const TICK_RATE = 20; // 20 Hz
@@ -473,6 +498,18 @@ app.patch('/admin/rooms/:id/config', (req, res) => {
   res.json({ config: room.config });
 });
 
+// Default config endpoints
+app.get('/admin/config/default', (_req, res) => {
+  res.json({ config: DEFAULT_ROOM_CONFIG });
+});
+
+app.patch('/admin/config/default', (req, res) => {
+  const parse = RoomConfigSchema.safeParse(req.body || {});
+  if (!parse.success) return res.status(400).json({ error: 'INVALID_CONFIG', details: parse.error.issues });
+  DEFAULT_ROOM_CONFIG = { ...DEFAULT_ROOM_CONFIG, ...parse.data };
+  res.json({ config: DEFAULT_ROOM_CONFIG });
+});
+
 app.delete('/admin/rooms/:id', (req, res) => {
   const ok = roomManager.closeRoom(req.params.id);
   if (!ok) return res.status(404).json({ error: 'NOT_FOUND' });
@@ -483,6 +520,12 @@ app.get('/admin/rooms/:id/players', (req, res) => {
   const room = roomManager.getRoom(req.params.id);
   if (!room) return res.status(404).json({ error: 'NOT_FOUND' });
   const players = Array.from(room.players.values()).map((p) => ({ id: p.id, name: p.name, score: p.score }));
+  res.json({ players });
+});
+
+app.get('/admin/players', (_req, res) => {
+  const rooms = roomManager.listRooms();
+  const players = rooms.flatMap((r) => Array.from(r.players.values()).map((p) => ({ id: p.id, name: p.name, score: p.score, roomId: r.id })));
   res.json({ players });
 });
 
