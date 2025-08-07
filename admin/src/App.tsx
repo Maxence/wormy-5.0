@@ -20,16 +20,35 @@ function useAdminRooms(apiBase: string, token: string | null) {
   return { rooms, refetch: fetchRooms }
 }
 
+function useAdminStats(apiBase: string, token: string | null) {
+  const [stats, setStats] = useState<{ totals: { players: number; rooms: number }, rooms: { id: string; players: number; maxPlayers: number; isClosed: boolean }[] } | null>(null)
+  useEffect(() => {
+    if (!token) return
+    const fetchStats = async () => {
+      const res = await fetch(`${apiBase}/admin/stats`, { headers: { Authorization: `Bearer ${token}` } })
+      const data = await res.json()
+      setStats(data)
+    }
+    fetchStats()
+    const id = setInterval(fetchStats, 3000)
+    return () => clearInterval(id)
+  }, [apiBase, token])
+  return stats
+}
+
 function App() {
   const [token, setToken] = useState('dev-admin')
   const [connected, setConnected] = useState(false)
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null)
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [banName, setBanName] = useState('')
+  const [mapSize, setMapSize] = useState<number>(5000)
   const wsRef = useRef<WebSocket | null>(null)
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
   const apiBase = useMemo(() => `http://${location.hostname}:4000`, [])
   const { rooms, refetch } = useAdminRooms(apiBase, token)
+  const stats = useAdminStats(apiBase, token)
 
   const connectWs = () => {
     if (!token) return
@@ -94,6 +113,45 @@ function App() {
     }
   }, [connected, selectedRoom])
 
+  // Fetch room config for mapSize when selecting
+  useEffect(() => {
+    if (!selectedRoom || !token) return
+    const fetchConfig = async () => {
+      const res = await fetch(`${apiBase}/admin/rooms/${selectedRoom}/config`, { headers: { Authorization: `Bearer ${token}` } })
+      const data = await res.json()
+      if (data?.config?.mapSize) setMapSize(data.config.mapSize)
+    }
+    fetchConfig()
+  }, [selectedRoom, token, apiBase])
+
+  // Draw snapshot on canvas
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || !snapshot) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    const width = canvas.width
+    const height = canvas.height
+    ctx.clearRect(0, 0, width, height)
+    // world is [-mapSize, mapSize]
+    const worldToScreen = (x: number, y: number) => {
+      const nx = (x + mapSize) / (2 * mapSize)
+      const ny = (y + mapSize) / (2 * mapSize)
+      return { sx: nx * width, sy: (1 - ny) * height }
+    }
+    // draw border
+    ctx.strokeStyle = '#888'
+    ctx.strokeRect(0, 0, width, height)
+    // draw players
+    for (const p of snapshot.players) {
+      const { sx, sy } = worldToScreen(p.position.x, p.position.y)
+      ctx.fillStyle = '#2e86de'
+      ctx.beginPath()
+      ctx.arc(sx, sy, 3, 0, Math.PI * 2)
+      ctx.fill()
+    }
+  }, [snapshot, mapSize])
+
   return (
     <>
       <h1>Admin Spectator</h1>
@@ -102,6 +160,10 @@ function App() {
           <p>Token: <input value={token} onChange={(e) => setToken(e.target.value)} /></p>
           <button onClick={connectWs} disabled={connected}>Connect WS</button>
           <button onClick={openRoom} style={{ marginLeft: 8 }}>Open room</button>
+          <div style={{ marginTop: 8 }}>
+            <strong>Global stats</strong>
+            <div>Players: {stats?.totals.players ?? '—'} | Rooms: {stats?.totals.rooms ?? '—'}</div>
+          </div>
           <h2>Rooms</h2>
           <ul>
             {rooms.map(r => (
@@ -123,6 +185,8 @@ function App() {
         </div>
         <div>
           <h2>Snapshot {snapshot?.roomId ? `(${snapshot.roomId.slice(0,8)})` : ''}</h2>
+          <div style={{ marginBottom: 8 }}>Map size: {mapSize}</div>
+          <canvas ref={canvasRef} width={400} height={400} style={{ border: '1px solid #ccc', background: '#111', display: 'block', marginBottom: 8 }} />
           <ol>
             {snapshot?.players?.slice(0, 50).map(p => (
               <li key={p.id}>
