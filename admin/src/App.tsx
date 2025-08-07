@@ -157,96 +157,63 @@ function App() {
     }
   }, [snapshot, mapSize])
 
+  const Card: React.FC<{ title: string; right?: React.ReactNode; children?: React.ReactNode }> = ({ title, right, children }) => (
+    <div style={{ background: '#111', border: '1px solid #222', borderRadius: 8, padding: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <h3 style={{ margin: 0 }}>{title}</h3>
+        {right}
+      </div>
+      <div>{children}</div>
+    </div>
+  )
+
+  const Grid: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>{children}</div>
+  )
+
   return (
     <>
-      <h1>Admin Spectator</h1>
-      <div style={{ display: 'flex', gap: 16 }}>
-        <div>
-          <p>Token: <input value={token} onChange={(e) => setToken(e.target.value)} /></p>
-          <button onClick={connectWs} disabled={connected}>Connect WS</button>
-          <button onClick={openRoom} style={{ marginLeft: 8 }}>Open room</button>
-          <div style={{ marginTop: 8 }}>
-            <strong>Global stats</strong>
-            <div>Players: {stats?.totals.players ?? '—'} | Rooms: {stats?.totals.rooms ?? '—'} | Mem: {stats?.totals.memMB ?? '—'} MB | Uptime: {stats?.uptimeSec ?? '—'} s</div>
+      <h1 style={{ margin: '16px 0' }}>Admin Dashboard</h1>
+      <Grid>
+        <Card title="Connection">
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            Token: <input value={token} onChange={(e) => setToken(e.target.value)} />
+            <button onClick={connectWs} disabled={connected}>Connect WS</button>
+            <button onClick={openRoom}>Open room</button>
           </div>
-          <h2>Rooms</h2>
-          <ul>
+        </Card>
+        <Card title="Global stats">
+          <div>Players: {stats?.totals.players ?? '—'} | Rooms: {stats?.totals.rooms ?? '—'} | Mem: {stats?.totals.memMB ?? '—'} MB | Uptime: {stats?.uptimeSec ?? '—'} s</div>
+        </Card>
+        <Card title="Rooms">
+          <ul style={{ margin: 0, paddingLeft: 16 }}>
             {rooms.map(r => {
               const rStats = stats?.rooms.find(x => x.id === r.id)
               return (
-              <li key={r.id}>
-                <button onClick={() => setSelectedRoom(r.id)} disabled={selectedRoom===r.id}>
-                  {r.id.slice(0,8)} — {r.players}/{r.maxPlayers}
-                </button>
-                <button onClick={() => closeRoom(r.id)} style={{ marginLeft: 8 }}>
-                  Close
-                </button>
-                {rStats ? (
-                  <span style={{ marginLeft: 8, opacity: 0.8 }}>
-                    p95: {rStats.p95TickMs}ms | bHz: {rStats.broadcastHz}
-                  </span>
-                ) : null}
-              </li>
-            )})}
+                <li key={r.id} style={{ marginBottom: 6 }}>
+                  <button onClick={() => setSelectedRoom(r.id)} disabled={selectedRoom===r.id}>
+                    {r.id.slice(0,8)} — {r.players}/{r.maxPlayers}
+                  </button>
+                  <button onClick={() => closeRoom(r.id)} style={{ marginLeft: 8 }}>Close</button>
+                  {rStats ? (
+                    <span style={{ marginLeft: 8, opacity: 0.8 }}>
+                      p95: {rStats.p95TickMs}ms | bHz: {rStats.broadcastHz}
+                    </span>
+                  ) : null}
+                </li>
+              )})}
           </ul>
+        </Card>
+        <Card title="Ban">
           <div>
-            <h3>Ban</h3>
             <input placeholder="player name" value={banName} onChange={(e) => setBanName(e.target.value)} />
             <button onClick={banPlayerByName} style={{ marginLeft: 8 }}>Ban</button>
           </div>
-        </div>
-        <div>
-          <h2>Snapshot {snapshot?.roomId ? `(${snapshot.roomId.slice(0,8)})` : ''}</h2>
+        </Card>
+        <Card title={`Snapshot ${snapshot?.roomId ? '('+snapshot.roomId.slice(0,8)+')' : ''}`}>
           <div style={{ marginBottom: 8 }}>Map size: {mapSize}</div>
-          <canvas ref={canvasRef} width={400} height={400} style={{ border: '1px solid #ccc', background: '#111', display: 'block', marginBottom: 8 }} />
-          {selectedRoom && (
-            <div style={{ marginBottom: 12 }}>
-              <h3>Room config</h3>
-              <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 8, maxWidth: 420 }}>
-                <label>mapSize</label>
-                <input type="number" value={roomConfig?.mapSize ?? ''} onChange={(e) => {
-                  const v = Number(e.target.value); if (!isNaN(v) && roomConfig) { setRoomConfig({ ...roomConfig, mapSize: v }); setMapSize(v) }
-                }} />
-                <label>maxPlayers</label>
-                <input type="number" value={roomConfig?.maxPlayers ?? ''} onChange={(e) => {
-                  const v = Number(e.target.value); if (!isNaN(v) && roomConfig) setRoomConfig({ ...roomConfig, maxPlayers: v })
-                }} />
-                <label>foodCoveragePercent</label>
-                <input type="number" value={roomConfig?.foodCoveragePercent ?? ''} onChange={(e) => {
-                  const v = Number(e.target.value); if (!isNaN(v) && roomConfig) setRoomConfig({ ...roomConfig, foodCoveragePercent: v })
-                }} />
-                <label>foodSpawnRatePerSecond</label>
-                <input type="number" value={roomConfig?.foodSpawnRatePerSecond ?? ''} onChange={(e) => {
-                  const v = Number(e.target.value); if (!isNaN(v) && roomConfig) setRoomConfig({ ...roomConfig, foodSpawnRatePerSecond: v })
-                }} />
-              </div>
-              <div style={{ marginTop: 8 }}>
-                <button onClick={async () => {
-                  if (!token || !selectedRoom || !roomConfig) return
-                  const res = await fetch(`${apiBase}/admin/rooms/${selectedRoom}/config`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                    body: JSON.stringify(roomConfig)
-                  });
-                  const data = await res.json();
-                  if (data?.config) {
-                    setRoomConfig(data.config)
-                    if (typeof data.config.mapSize === 'number') setMapSize(data.config.mapSize)
-                  }
-                }}>Save config</button>
-                <button style={{ marginLeft: 8 }} onClick={async () => {
-                  if (!token || !selectedRoom) return
-                  const res = await fetch(`${apiBase}/admin/rooms/${selectedRoom}/config`, { headers: { Authorization: `Bearer ${token}` } })
-                  const data = await res.json();
-                  if (data?.config) {
-                    setRoomConfig(data.config)
-                    if (typeof data.config.mapSize === 'number') setMapSize(data.config.mapSize)
-                  }
-                }}>Reload</button>
-              </div>
-            </div>
-          )}
-          <ol>
+          <canvas ref={canvasRef} width={400} height={300} style={{ border: '1px solid #222', background: '#000', display: 'block', marginBottom: 8, width: '100%', height: 300 }} />
+          <ol style={{ maxHeight: 200, overflow: 'auto' }}>
             {snapshot?.players?.slice(0, 50).map(p => (
               <li key={p.id}>
                 {p.name} — {p.score} @ ({Math.round(p.position.x)}, {Math.round(p.position.y)})
@@ -256,8 +223,54 @@ function App() {
               </li>
             ))}
           </ol>
-        </div>
-      </div>
+        </Card>
+        {selectedRoom && (
+          <Card title="Room config">
+            <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 8, maxWidth: 520 }}>
+              <label>mapSize</label>
+              <input type="number" value={roomConfig?.mapSize ?? ''} onChange={(e) => {
+                const v = Number(e.target.value); if (!isNaN(v) && roomConfig) { setRoomConfig({ ...roomConfig, mapSize: v }); setMapSize(v) }
+              }} />
+              <label>maxPlayers</label>
+              <input type="number" value={roomConfig?.maxPlayers ?? ''} onChange={(e) => {
+                const v = Number(e.target.value); if (!isNaN(v) && roomConfig) setRoomConfig({ ...roomConfig, maxPlayers: v })
+              }} />
+              <label>foodCoveragePercent</label>
+              <input type="number" value={roomConfig?.foodCoveragePercent ?? ''} onChange={(e) => {
+                const v = Number(e.target.value); if (!isNaN(v) && roomConfig) setRoomConfig({ ...roomConfig, foodCoveragePercent: v })
+              }} />
+              <label>foodSpawnRatePerSecond</label>
+              <input type="number" value={roomConfig?.foodSpawnRatePerSecond ?? ''} onChange={(e) => {
+                const v = Number(e.target.value); if (!isNaN(v) && roomConfig) setRoomConfig({ ...roomConfig, foodSpawnRatePerSecond: v })
+              }} />
+            </div>
+            <div style={{ marginTop: 8 }}>
+              <button onClick={async () => {
+                if (!token || !selectedRoom || !roomConfig) return
+                const res = await fetch(`${apiBase}/admin/rooms/${selectedRoom}/config`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                  body: JSON.stringify(roomConfig)
+                });
+                const data = await res.json();
+                if (data?.config) {
+                  setRoomConfig(data.config)
+                  if (typeof data.config.mapSize === 'number') setMapSize(data.config.mapSize)
+                }
+              }}>Save config</button>
+              <button style={{ marginLeft: 8 }} onClick={async () => {
+                if (!token || !selectedRoom) return
+                const res = await fetch(`${apiBase}/admin/rooms/${selectedRoom}/config`, { headers: { Authorization: `Bearer ${token}` } })
+                const data = await res.json();
+                if (data?.config) {
+                  setRoomConfig(data.config)
+                  if (typeof data.config.mapSize === 'number') setMapSize(data.config.mapSize)
+                }
+              }}>Reload</button>
+            </div>
+          </Card>
+        )}
+      </Grid>
     </>
   )
 }
