@@ -343,7 +343,7 @@ setInterval(() => {
 
 // --- Simulation loop per room ---
 const TICK_RATE = 20; // 20 Hz
-const BROADCAST_RATE = 5; // 5 Hz snapshots to players
+const BROADCAST_RATE = 4; // 4 Hz snapshots to players
 setInterval(() => {
   const dt = 1 / TICK_RATE;
   for (const room of roomManager.listRooms()) {
@@ -400,7 +400,7 @@ setInterval(() => {
       const a = playersArr[i];
       const aR = computeRadius(a.score);
       // self collision against segments (skip last 12 points near head)
-      for (let k = 0; k < a.bodyPoints.length - 12; k++) {
+      for (let k = 0; k < a.bodyPoints.length - 12; k += 2) {
         const p1 = a.bodyPoints[k];
         const p2 = a.bodyPoints[Math.min(k+1, a.bodyPoints.length - 13)];
         const d2 = distPointSeg2(a.position.x, a.position.y, p1.x, p1.y, p2.x, p2.y);
@@ -411,8 +411,11 @@ setInterval(() => {
         if (i === j) continue;
         const b = playersArr[j];
         const bR = computeRadius(b.score);
+        // quick reject if heads are far apart
+        const far2 = (aR + bR + 200) * (aR + bR + 200);
+        if (distanceSquared(a.position, b.position) > far2) continue;
         // head vs body segments of b, skip last 12 points near b's head
-        for (let k = 0; k < b.bodyPoints.length - 12; k++) {
+        for (let k = 0; k < b.bodyPoints.length - 12; k += 3) {
           const p1 = b.bodyPoints[k];
           const p2 = b.bodyPoints[Math.min(k+1, b.bodyPoints.length - 13)];
           const d2 = distPointSeg2(a.position.x, a.position.y, p1.x, p1.y, p2.x, p2.y);
@@ -447,13 +450,13 @@ setInterval(() => {
     }
 
     // Spawn food clusters to maintain density
-    const desiredFoodCount = Math.floor((room.config.foodCoveragePercent / 100) * 3000);
+    const desiredFoodCount = Math.floor((room.config.foodCoveragePercent / 100) * 2000);
     if (room.foods.length < desiredFoodCount) {
       const center: Vector2 = { x: (Math.random() * 2 - 1) * room.config.mapSize, y: (Math.random() * 2 - 1) * room.config.mapSize };
-      const clusterSize = 20 + Math.floor(Math.random() * 60);
+      const clusterSize = 15 + Math.floor(Math.random() * 40);
       for (let n = 0; n < clusterSize; n++) {
         const angle = Math.random() * Math.PI * 2;
-        const radius = Math.random() * 120 + 20;
+        const radius = Math.random() * 80 + 20;
         const pos = { x: center.x + Math.cos(angle) * radius + jitter(8), y: center.y + Math.sin(angle) * radius + jitter(8) };
         room.foods.push({ id: uuidv4(), position: pos, value: 1 + Math.random() * 3 });
       }
@@ -473,8 +476,8 @@ setInterval(() => {
       .sort((a, b) => b.score - a.score)
       .slice(0, 10)
       .map((p) => ({ id: p.id, name: p.name, score: Math.round(p.score) }));
-    const foods = room.foods.slice(0, 500);
-    const players = Array.from(room.players.values()).map((p) => ({ id: p.id, name: p.name, score: Math.round(p.score), position: p.position }));
+    const foods = room.foods.slice(0, 300).map((f) => ({ id: f.id, position: { x: Math.round(f.position.x), y: Math.round(f.position.y) }, value: Math.round(f.value * 10) / 10 }));
+    const players = Array.from(room.players.values()).map((p) => ({ id: p.id, name: p.name, score: Math.round(p.score), position: { x: Math.round(p.position.x), y: Math.round(p.position.y) } }));
     const payload = JSON.stringify({ t: 'state', roomId: room.id, leaderboard: lb, players, foods, mapSize: room.config.mapSize, serverNow: Date.now() });
     for (const p of room.players.values()) {
       if (p.ws.readyState === p.ws.OPEN) {

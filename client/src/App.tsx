@@ -202,10 +202,10 @@ function App() {
   useEffect(() => {
     let raf = 0
     let lastTs = performance.now()
-    let fpsAcc = 0; let fpsCount = 0; let fpsDisplay = 0
+    let fpsEMA = 0; let fpsDisplay = 0
     const draw = () => {
       const nowTs = performance.now()
-      const dt = Math.min(0.05, Math.max(0.0, (nowTs - lastTs) / 1000))
+      const dt = Math.min(0.05, Math.max(0.001, (nowTs - lastTs) / 1000))
       lastTs = nowTs
       const canvas = canvasRef.current
       if (!canvas) { raf = requestAnimationFrame(draw); return }
@@ -262,17 +262,38 @@ function App() {
       }
       ctx.stroke()
 
-      // Food glow
-      for (const f of foods) {
-        const { sx, sy } = worldToScreen(f.position.x, f.position.y)
-        const r = Math.max(1.5, 2.5 * zoom)
-        const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, r * 3)
-        g.addColorStop(0, 'rgba(46, 204, 113, 0.9)')
-        g.addColorStop(1, 'rgba(46, 204, 113, 0)')
-        ctx.fillStyle = g
-        ctx.beginPath(); ctx.arc(sx, sy, r * 3, 0, Math.PI * 2); ctx.fill()
-        ctx.fillStyle = '#2ecc71'
-        ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.fill()
+      // Culling bounds in world space
+      const margin = 200 / Math.max(zoom, 0.01)
+      const halfW = width / 2 / Math.max(zoom, 0.01)
+      const halfH = height / 2 / Math.max(zoom, 0.01)
+      const minX = camX - halfW - margin
+      const maxX = camX + halfW + margin
+      const minY = camY - halfH - margin
+      const maxY = camY + halfH + margin
+
+      // Food render with culling and LOD
+      let drawnFoods = 0
+      const maxFoods = 300
+      const useGlow = zoom > 0.6
+      for (let i = 0; i < foods.length && drawnFoods < maxFoods; i++) {
+        const f = foods[i]
+        const fx = f.position.x, fy = f.position.y
+        if (fx < minX || fx > maxX || fy < minY || fy > maxY) continue
+        const { sx, sy } = worldToScreen(fx, fy)
+        if (useGlow && drawnFoods < 150) {
+          const r = Math.max(1.5, 2.5 * zoom)
+          const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, r * 3)
+          g.addColorStop(0, 'rgba(46, 204, 113, 0.9)')
+          g.addColorStop(1, 'rgba(46, 204, 113, 0)')
+          ctx.fillStyle = g
+          ctx.beginPath(); ctx.arc(sx, sy, r * 3, 0, Math.PI * 2); ctx.fill()
+          ctx.fillStyle = '#2ecc71'
+          ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.fill()
+        } else {
+          ctx.fillStyle = '#2ecc71'
+          ctx.fillRect(sx - 1, sy - 1, 2, 2)
+        }
+        drawnFoods++
       }
 
       // Update histories and particles, then draw trails and heads
@@ -309,8 +330,10 @@ function App() {
         }
       }
 
-      // Draw trails
+      // Draw trails (only for players near viewport)
       for (const p of renderPlayers) {
+        const px = p.position.x, py = p.position.y
+        if (px < minX - 300 || px > maxX + 300 || py < minY - 300 || py > maxY + 300) continue
         const hist = playerHistories.current.get(p.id) || []
         if (hist.length < 2) continue
         const baseR = radiusFromScore(p.score) * zoom
@@ -325,8 +348,10 @@ function App() {
         }
       }
 
-      // Draw heads with gradient outline
+      // Draw heads with gradient outline (only near viewport)
       for (const p of renderPlayers) {
+        const px = p.position.x, py = p.position.y
+        if (px < minX - 200 || px > maxX + 200 || py < minY - 200 || py > maxY + 200) continue
         const { sx, sy } = worldToScreen(p.position.x, p.position.y)
         const r = radiusFromScore(p.score) * zoom
         const hue = hashHue(p.id)
@@ -338,14 +363,17 @@ function App() {
         ctx.strokeStyle = 'rgba(255,255,255,0.15)'
         ctx.lineWidth = 2
         ctx.beginPath(); ctx.arc(sx, sy, r+1, 0, Math.PI * 2); ctx.stroke()
-        ctx.fillStyle = '#fff'
-        ctx.font = `${Math.max(10, 12 * zoom)}px sans-serif`
-        ctx.textAlign = 'center'
-        ctx.fillText(p.name, sx, sy - r - 6)
+        if (zoom > 0.5) {
+          ctx.fillStyle = '#fff'
+          ctx.font = `${Math.max(10, 12 * zoom)}px sans-serif`
+          ctx.textAlign = 'center'
+          ctx.fillText(p.name, sx, sy - r - 6)
+        }
       }
 
       // Update and draw particles
       const parts = particlesRef.current
+      if (parts.length > 200) parts.splice(0, parts.length - 200)
       for (let i = parts.length - 1; i >= 0; i--) {
         const pa = parts[i]
         pa.life += dt
@@ -375,9 +403,10 @@ function App() {
         ctx.fillText(`${e.name} — ${e.score}`, 20, y)
         y += 18
       }
-      // fps
-      fpsAcc += 1/dt; fpsCount++
-      if (fpsCount >= 10) { fpsDisplay = Math.round(fpsAcc / fpsCount); fpsAcc = 0; fpsCount = 0 }
+      // fps (EMA)
+      const instFps = 1/dt
+      fpsEMA = fpsEMA === 0 ? instFps : (fpsEMA * 0.9 + instFps * 0.1)
+      fpsDisplay = Math.round(fpsEMA)
       ctx.fillText(`FPS: ${fpsDisplay}`, 20, y)
 
       const mini = minimapRef.current
