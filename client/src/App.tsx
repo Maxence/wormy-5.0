@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
 type Vector2 = { x: number; y: number }
-type WsState = { t: 'state'; roomId: string; leaderboard: { id: string; name: string; score: number }[]; players: { id: string; name: string; score: number; position: Vector2 }[]; foods: { id: string; position: Vector2; value: number }[] }
+type PlayerState = { id: string; name: string; score: number; position: Vector2 }
+type FoodState = { id: string; position: Vector2; value: number }
+type WsState = { t: 'state'; roomId: string; leaderboard: { id: string; name: string; score: number }[]; players: PlayerState[]; foods: FoodState[]; mapSize: number; serverNow: number }
 type WsMessage =
   | { t: 'welcome' }
   | { t: 'ping'; pingId: number }
@@ -24,8 +26,11 @@ function App() {
   const [roomId, setRoomId] = useState<string | null>(null)
   const [playerId, setPlayerId] = useState<string | null>(null)
   const [leaderboard, setLeaderboard] = useState<{ id: string; name: string; score: number }[]>([])
-  const [players, setPlayers] = useState<{ id: string; name: string; score: number; position: Vector2 }[]>([])
-  const [foods, setFoods] = useState<{ id: string; position: Vector2; value: number }[]>([])
+  const [players, setPlayers] = useState<PlayerState[]>([])
+  const [foods, setFoods] = useState<FoodState[]>([])
+  const [mapSize, setMapSize] = useState<number>(5000)
+  const prevSnapshotRef = useRef<WsState | null>(null)
+  const currSnapshotRef = useRef<WsState | null>(null)
   const [boosting, setBoosting] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
   const lastPings = useRef<Map<number, number>>(new Map())
@@ -66,9 +71,13 @@ function App() {
           setRoomId(msg.roomId)
           setPlayerId(msg.playerId)
         } else if (msg.t === 'state') {
+          // snapshots for interpolation
+          prevSnapshotRef.current = currSnapshotRef.current
+          currSnapshotRef.current = msg
           setLeaderboard(msg.leaderboard)
           setPlayers(msg.players)
           setFoods(msg.foods)
+          setMapSize(msg.mapSize)
         }
       } catch {
       }
@@ -132,7 +141,29 @@ function App() {
       if (!canvas) { raf = requestAnimationFrame(draw); return }
       const ctx = canvas.getContext('2d')
       if (!ctx) { raf = requestAnimationFrame(draw); return }
-      const my = players.find(p => p.id === playerId)
+      // Interpolate players between snapshots
+      const prev = prevSnapshotRef.current
+      const curr = currSnapshotRef.current
+      let renderPlayers: PlayerState[] = players
+      const interpolationDelayMs = 100
+      if (prev && curr && curr.serverNow > prev.serverNow) {
+        const renderTime = Date.now() - interpolationDelayMs
+        const alpha = Math.max(0, Math.min(1, (renderTime - prev.serverNow) / (curr.serverNow - prev.serverNow)))
+        const prevById = new Map(prev.players.map(p => [p.id, p]))
+        renderPlayers = curr.players.map(cp => {
+          const pp = prevById.get(cp.id)
+          if (!pp) return cp
+          return {
+            ...cp,
+            position: {
+              x: pp.position.x + (cp.position.x - pp.position.x) * alpha,
+              y: pp.position.y + (cp.position.y - pp.position.y) * alpha,
+            }
+          }
+        })
+      }
+
+      const my = renderPlayers.find(p => p.id === playerId)
       const score = my?.score ?? 10
       const zoom = computeZoom(score)
       const width = canvas.width
@@ -155,7 +186,7 @@ function App() {
         ctx.beginPath(); ctx.arc(sx, sy, Math.max(1, 2 * zoom), 0, Math.PI * 2); ctx.fill()
       }
 
-      for (const p of players) {
+      for (const p of renderPlayers) {
         const { sx, sy } = worldToScreen(p.position.x, p.position.y)
         const r = Math.max(3, 6 + Math.sqrt(Math.max(0, p.score)) * 0.3) * zoom
         ctx.fillStyle = p.id === playerId ? '#f1c40f' : '#3498db'
@@ -186,13 +217,13 @@ function App() {
         const mctx = mini.getContext('2d')
         if (mctx) {
           mctx.fillStyle = '#111'; mctx.fillRect(0, 0, mini.width, mini.height)
-          const mapSize = 5000
+          const ms = mapSize || 5000
           const toMini = (x: number, y: number) => {
-            const nx = (x + mapSize) / (2 * mapSize)
-            const ny = (y + mapSize) / (2 * mapSize)
+            const nx = (x + ms) / (2 * ms)
+            const ny = (y + ms) / (2 * ms)
             return { x: nx * mini.width, y: (1 - ny) * mini.height }
           }
-          for (const p of players) {
+          for (const p of renderPlayers) {
             const pos = toMini(p.position.x, p.position.y)
             mctx.fillStyle = p.id === playerId ? '#f1c40f' : '#3498db'
             mctx.fillRect(pos.x - 2, pos.y - 2, 4, 4)
@@ -204,7 +235,7 @@ function App() {
     }
     raf = requestAnimationFrame(draw)
     return () => cancelAnimationFrame(raf)
-  }, [players, foods, leaderboard, playerId, status, rttMs])
+  }, [players, foods, leaderboard, playerId, status, rttMs, mapSize])
 
   return (
     <>
