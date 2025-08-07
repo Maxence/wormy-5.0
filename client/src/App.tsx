@@ -34,6 +34,7 @@ function App() {
   const currSnapshotRef = useRef<WsState | null>(null)
   const [boosting, setBoosting] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
+  const [joinError, setJoinError] = useState<string | null>(null)
   const lastPings = useRef<Map<number, number>>(new Map())
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const minimapRef = useRef<HTMLCanvasElement | null>(null)
@@ -81,6 +82,10 @@ function App() {
         } else if (msg.t === 'joined') {
           setRoomId(msg.roomId)
           setPlayerId(msg.playerId)
+          setJoinError(null)
+        } else if ((msg as any).t === 'error') {
+          const anyMsg = msg as any
+          setJoinError(anyMsg.error || 'JOIN_FAILED')
         } else if (msg.t === 'dead') {
           // burst particles on death
           const my = players.find(p => p.id === playerId)
@@ -380,6 +385,24 @@ function App() {
         <div>Boost: hold Space</div>
       </div>
       <canvas ref={minimapRef} style={{ position: 'fixed', right: 12, bottom: 12, width: 200, height: 200, border: '1px solid #333' }} />
+      {!roomId && (
+        <div style={{ position: 'fixed', inset: 0, display: 'grid', placeItems: 'center', pointerEvents: 'none' }}>
+          <div style={{ background: 'rgba(0,0,0,0.6)', color: '#fff', padding: 20, borderRadius: 8, minWidth: 320, pointerEvents: 'auto' }}>
+            <h2 style={{ marginTop: 0 }}>Start a game</h2>
+            <div style={{ display: 'grid', gap: 10 }}>
+              <label>
+                Name
+                <input style={{ width: '100%' }} value={playerName} onChange={(e) => setPlayerName(e.target.value)} />
+              </label>
+              {joinError && <div style={{ color: '#ff7675' }}>Error: {joinError}</div>}
+              <button onClick={() => { wsRef.current?.send(JSON.stringify({ t: 'hello', name: playerName })) }}>
+                Play
+              </button>
+              <div style={{ opacity: 0.8, fontSize: 12 }}>Status: {status} • Server ws://{location.hostname}:4000/ws</div>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }
