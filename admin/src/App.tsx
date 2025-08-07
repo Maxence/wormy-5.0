@@ -1,33 +1,85 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
+type Snapshot = { t: 'snapshot'; roomId: string; players: { id: string; name: string; score: number; position: { x: number; y: number } }[] }
+
+function useAdminRooms(apiBase: string, token: string | null) {
+  const [rooms, setRooms] = useState<{ id: string; players: number; maxPlayers: number; isClosed: boolean }[]>([])
+  useEffect(() => {
+    if (!token) return
+    const fetchRooms = async () => {
+      const res = await fetch(`${apiBase}/admin/rooms`, { headers: { Authorization: `Bearer ${token}` } })
+      const data = await res.json()
+      setRooms(data.rooms || [])
+    }
+    fetchRooms()
+    const id = setInterval(fetchRooms, 3000)
+    return () => clearInterval(id)
+  }, [apiBase, token])
+  return rooms
+}
+
 function App() {
-  const [count, setCount] = useState(0)
+  const [token, setToken] = useState('dev-admin')
+  const [connected, setConnected] = useState(false)
+  const [selectedRoom, setSelectedRoom] = useState<string | null>(null)
+  const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
+  const wsRef = useRef<WebSocket | null>(null)
+
+  const apiBase = useMemo(() => `http://${location.hostname}:4000`, [])
+  const rooms = useAdminRooms(apiBase, token)
+
+  const connectWs = () => {
+    if (!token) return
+    const url = `ws://${location.hostname}:4000/admin-ws?token=${encodeURIComponent(token)}`
+    const ws = new WebSocket(url)
+    wsRef.current = ws
+    ws.onopen = () => {
+      setConnected(true)
+      if (selectedRoom) ws.send(JSON.stringify({ t: 'subscribe', roomId: selectedRoom }))
+    }
+    ws.onclose = () => setConnected(false)
+    ws.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(String(ev.data)) as Snapshot
+        if (msg.t === 'snapshot') setSnapshot(msg)
+      } catch {}
+    }
+  }
+
+  useEffect(() => {
+    if (connected && selectedRoom && wsRef.current) {
+      wsRef.current.send(JSON.stringify({ t: 'subscribe', roomId: selectedRoom }))
+    }
+  }, [connected, selectedRoom])
 
   return (
     <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
+      <h1>Admin Spectator</h1>
+      <div style={{ display: 'flex', gap: 16 }}>
+        <div>
+          <p>Token: <input value={token} onChange={(e) => setToken(e.target.value)} /></p>
+          <button onClick={connectWs} disabled={connected}>Connect WS</button>
+          <h2>Rooms</h2>
+          <ul>
+            {rooms.map(r => (
+              <li key={r.id}>
+                <button onClick={() => setSelectedRoom(r.id)} disabled={selectedRoom===r.id}>
+                  {r.id.slice(0,8)} — {r.players}/{r.maxPlayers}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div>
+          <h2>Snapshot {snapshot?.roomId ? `(${snapshot.roomId.slice(0,8)})` : ''}</h2>
+          <ol>
+            {snapshot?.players?.slice(0, 20).map(p => (
+              <li key={p.id}>{p.name} — {p.score} @ ({Math.round(p.position.x)}, {Math.round(p.position.y)})</li>
+            ))}
+          </ol>
+        </div>
       </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
     </>
   )
 }
