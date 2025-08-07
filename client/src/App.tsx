@@ -1,33 +1,65 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
+type WsMessage =
+  | { t: 'welcome' }
+  | { t: 'ping'; pingId: number }
+  | { t: 'pong'; now?: number; pingId?: number | null }
+  | { t: 'latency'; rttMs: number }
+  | { t: string; [k: string]: unknown }
+
 function App() {
-  const [count, setCount] = useState(0)
+  const [rttMs, setRttMs] = useState<number | null>(null)
+  const [status, setStatus] = useState<'disconnected'|'connecting'|'connected'>('disconnected')
+  const wsRef = useRef<WebSocket | null>(null)
+  const lastPings = useRef<Map<number, number>>(new Map())
+
+  const wsUrl = useMemo(() => {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+    const host = location.hostname
+    const port = 4000
+    return `${proto}://${host}:${port}/ws`
+  }, [])
+
+  useEffect(() => {
+    setStatus('connecting')
+    const ws = new WebSocket(wsUrl)
+    wsRef.current = ws
+    ws.onopen = () => setStatus('connected')
+    ws.onclose = () => setStatus('disconnected')
+    ws.onmessage = (event) => {
+      try {
+        const msg: WsMessage = JSON.parse(String(event.data))
+        if (msg.t === 'ping' && typeof msg.pingId === 'number') {
+          ws.send(JSON.stringify({ t: 'pong', pingId: msg.pingId }))
+        } else if (msg.t === 'latency') {
+          setRttMs(msg.rttMs)
+        } else if (msg.t === 'pong' && typeof msg.pingId === 'number') {
+          const sentAt = lastPings.current.get(msg.pingId)
+          if (typeof sentAt === 'number') {
+            setRttMs(Date.now() - sentAt)
+            lastPings.current.delete(msg.pingId)
+          }
+        }
+      } catch {
+      }
+    }
+    const id = setInterval(() => {
+      const pingId = Date.now()
+      lastPings.current.set(pingId, Date.now())
+      ws.send(JSON.stringify({ t: 'ping', pingId }))
+    }, 5000)
+    return () => {
+      clearInterval(id)
+      ws.close()
+    }
+  }, [wsUrl])
 
   return (
     <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
+      <h1>Wormy Client</h1>
+      <p>Status: {status}</p>
+      <p>Latency (RTT): {rttMs ?? '—'} ms</p>
     </>
   )
 }
