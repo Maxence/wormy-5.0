@@ -224,7 +224,15 @@ function App() {
       const width = canvas.width
       const height = canvas.height
 
-      // Background grid
+      const camX = my?.position.x ?? 0
+      const camY = my?.position.y ?? 0
+      const worldToScreen = (x: number, y: number) => {
+        const sx = (x - camX) * zoom + width / 2
+        const sy = (y - camY) * zoom + height / 2
+        return { sx, sy }
+      }
+
+      // Background grid (after cam computed)
       ctx.fillStyle = '#0a0a0a'
       ctx.fillRect(0, 0, width, height)
       ctx.strokeStyle = 'rgba(255,255,255,0.05)'
@@ -238,14 +246,6 @@ function App() {
         ctx.moveTo(0, y); ctx.lineTo(width, y)
       }
       ctx.stroke()
-
-      const camX = my?.position.x ?? 0
-      const camY = my?.position.y ?? 0
-      const worldToScreen = (x: number, y: number) => {
-        const sx = (x - camX) * zoom + width / 2
-        const sy = (y - camY) * zoom + height / 2
-        return { sx, sy }
-      }
 
       // Food glow
       for (const f of foods) {
