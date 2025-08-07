@@ -63,9 +63,17 @@ export default class GameScene extends Phaser.Scene {
         this.playerSprites.set(p.id, sprite)
       }
       const isMe = p.id === this.playerId
-      sprite.setTint(isMe ? 0xf1c40f : 0x3498db)
-      const r = Math.max(4, 6 + Math.sqrt(Math.max(0, p.score)) * 0.3)
-      sprite.setScale(r / 8)
+      const r = Math.max(6, 6 + Math.sqrt(Math.max(0, p.score)) * 0.3)
+      if (isMe) {
+        // bright and bigger for the local player
+        sprite.setTint(0xff5252)
+        sprite.setScale(Math.max(r / 6, 1.2))
+        sprite.setDepth(10)
+      } else {
+        sprite.setTint(0x00aaff)
+        sprite.setScale(r / 8)
+        sprite.setDepth(5)
+      }
       sprite.setPosition(p.position.x, p.position.y)
       sprite.setVisible(true)
       playerIds.add(p.id)
