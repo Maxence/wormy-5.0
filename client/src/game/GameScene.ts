@@ -14,6 +14,9 @@ export default class GameScene extends Phaser.Scene {
   static KEY = 'GameScene'
   private playerId: string | null = null
   private latest: WsState | null = null
+  private previous: WsState | null = null
+  private renderDelayMs = 100
+  private lastRenderTime = 0
   private playerSprites: Map<string, Phaser.GameObjects.Image> = new Map()
   private playerTargets: Map<string, { x: number; y: number; score: number }> = new Map()
   private foodBlitter!: Phaser.GameObjects.Blitter
@@ -58,14 +61,35 @@ export default class GameScene extends Phaser.Scene {
   }
 
   setSnapshot(s: WsState, playerId: string | null) {
+    this.previous = this.latest
     this.latest = s
     this.playerId = playerId
-    this.renderNow()
+    // no immediate render; update() will interpolate at t - renderDelay
   }
 
   private renderNow() {
     if (!this.latest) return
-    const s = this.latest
+    const now = performance.now()
+    this.lastRenderTime = now
+    // choose interpolated snapshot between previous and latest
+    let s = this.latest
+    if (this.previous && this.latest.serverNow > this.previous.serverNow) {
+      const targetTime = Date.now() - this.renderDelayMs
+      const a = this.previous
+      const b = this.latest
+      const alpha = Phaser.Math.Clamp((targetTime - a.serverNow) / (b.serverNow - a.serverNow), 0, 1)
+      const lerpPlayers = b.players.map(bp => {
+        const ap = a.players.find(p => p.id === bp.id) || bp
+        return {
+          ...bp,
+          position: {
+            x: ap.position.x + (bp.position.x - ap.position.x) * alpha,
+            y: ap.position.y + (bp.position.y - ap.position.y) * alpha,
+          }
+        }
+      })
+      s = { ...b, players: lerpPlayers }
+    }
 
     // players: set targets, create sprites if needed
     const playerIds = new Set<string>()
