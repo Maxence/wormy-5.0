@@ -47,6 +47,7 @@ function App() {
   const [roomConfig, setRoomConfig] = useState<RoomConfig | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const [logs, setLogs] = useState<{ ts: number; type: string; roomId?: string; playerId?: string; name?: string; details?: unknown }[]>([])
+  const logsRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
   const apiBase = useMemo(() => `http://${location.hostname}:4000`, [])
@@ -68,7 +69,11 @@ function App() {
         const msg = JSON.parse(String(ev.data)) as Snapshot
         if (msg.t === 'snapshot') setSnapshot(msg)
         if ((msg as any).t === 'log') {
-          setLogs((prev) => [...prev.slice(-999), (msg as any).entry])
+          const entry = (msg as any).entry
+          setLogs((prev) => {
+            const next = prev.length >= 500 ? [...prev.slice(prev.length - 499), entry] : [...prev, entry]
+            return next
+          })
         }
       } catch {}
     }
@@ -118,6 +123,13 @@ function App() {
       wsRef.current.send(JSON.stringify({ t: 'subscribe', roomId: selectedRoom }))
     }
   }, [connected, selectedRoom])
+
+  // Auto-scroll logs to bottom when new entries arrive
+  useEffect(() => {
+    const el = logsRef.current
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+  }, [logs])
 
   // Fetch room config for mapSize when selecting
   useEffect(() => {
@@ -229,8 +241,8 @@ function App() {
           </ol>
         </Card>
         <Card title="Live logs">
-          <div style={{ maxHeight: 260, overflow: 'auto', fontFamily: 'monospace', fontSize: 12 }}>
-            {logs.slice().reverse().map((l, i) => (
+          <div ref={logsRef} style={{ maxHeight: 260, overflow: 'auto', fontFamily: 'monospace', fontSize: 12 }}>
+            {logs.map((l, i) => (
               <div key={i}>
                 [{new Date(l.ts).toLocaleTimeString()}] {l.type} {l.roomId ? `room=${l.roomId.slice(0,8)}` : ''} {l.playerId ? `player=${l.playerId.slice(0,8)}` : ''} {l.name ? `name=${l.name}` : ''}
               </div>
