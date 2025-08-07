@@ -57,7 +57,16 @@ function App() {
     return `${proto}://${host}:${port}/ws`
   }, [])
 
-  useEffect(() => {
+  // Connect and join on demand
+  const connectAndJoin = () => {
+    const existing = wsRef.current
+    if (existing && existing.readyState === WebSocket.OPEN) {
+      existing.send(JSON.stringify({ t: 'hello', name: playerName }))
+      return
+    }
+    if (existing && existing.readyState === WebSocket.CONNECTING) {
+      return
+    }
     setStatus('connecting')
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
@@ -87,7 +96,6 @@ function App() {
           const anyMsg = msg as any
           setJoinError(anyMsg.error || 'JOIN_FAILED')
         } else if (msg.t === 'dead') {
-          // burst particles on death
           const my = players.find(p => p.id === playerId)
           if (my) {
             for (let i = 0; i < 60; i++) {
@@ -103,7 +111,6 @@ function App() {
             }
           }
         } else if (msg.t === 'state') {
-          // snapshots for interpolation
           prevSnapshotRef.current = currSnapshotRef.current
           currSnapshotRef.current = msg
           setLeaderboard(msg.leaderboard)
@@ -111,19 +118,16 @@ function App() {
           setFoods(msg.foods)
           setMapSize(msg.mapSize)
         }
-      } catch {
-      }
+      } catch {}
     }
-    const id = setInterval(() => {
-      const pingId = Date.now()
-      lastPings.current.set(pingId, Date.now())
-      ws.send(JSON.stringify({ t: 'ping', pingId }))
-    }, 5000)
+  }
+
+  // Cleanup on unmount
+  useEffect(() => {
     return () => {
-      clearInterval(id)
-      ws.close()
+      try { wsRef.current?.close() } catch {}
     }
-  }, [wsUrl, playerName])
+  }, [])
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => { mousePos.current = { x: e.clientX, y: e.clientY } }
@@ -147,7 +151,9 @@ function App() {
       const centerX = canvas.width / 2
       const centerY = canvas.height / 2
       const angle = Math.atan2(mousePos.current.y - centerY, mousePos.current.x - centerX)
-      wsRef.current.send(JSON.stringify({ t: 'input', playerId, directionRad: angle, boosting }))
+      if (wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ t: 'input', playerId, directionRad: angle, boosting }))
+      }
     }, 50)
     return () => clearInterval(id)
   }, [playerId, boosting])
@@ -164,6 +170,18 @@ function App() {
     resize()
     window.addEventListener('resize', resize)
     return () => window.removeEventListener('resize', resize)
+  }, [])
+
+  // Heartbeat ping using wsRef safely
+  useEffect(() => {
+    const id = setInterval(() => {
+      const ws = wsRef.current
+      if (!ws || ws.readyState !== WebSocket.OPEN) return
+      const pingId = Date.now()
+      lastPings.current.set(pingId, Date.now())
+      ws.send(JSON.stringify({ t: 'ping', pingId }))
+    }, 5000)
+    return () => clearInterval(id)
   }, [])
 
   useEffect(() => {
@@ -395,7 +413,7 @@ function App() {
                 <input style={{ width: '100%' }} value={playerName} onChange={(e) => setPlayerName(e.target.value)} />
               </label>
               {joinError && <div style={{ color: '#ff7675' }}>Error: {joinError}</div>}
-              <button onClick={() => { wsRef.current?.send(JSON.stringify({ t: 'hello', name: playerName })) }}>
+              <button onClick={() => { connectAndJoin() }} disabled={status === 'connecting'}>
                 Play
               </button>
               <div style={{ opacity: 0.8, fontSize: 12 }}>Status: {status} • Server ws://{location.hostname}:4000/ws</div>
