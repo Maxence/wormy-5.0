@@ -23,7 +23,7 @@ export default class GameScene extends Phaser.Scene {
   private pointerWorld: Vector2 = { x: 0, y: 0 }
   private grid!: Phaser.GameObjects.Graphics
   private trailGraphics!: Phaser.GameObjects.Graphics
-  private smoothingLambda = 12 // 1/s
+  private smoothingLambda = 20 // stronger smoothing for high Hz updates
 
   constructor() {
     super(GameScene.KEY)
@@ -136,11 +136,15 @@ export default class GameScene extends Phaser.Scene {
     // draw self trail if provided
     this.trailGraphics.clear()
     if (s.selfBody && s.selfBody.length > 2) {
-      this.trailGraphics.lineStyle(6, 0xffaa00, 0.6)
-      this.trailGraphics.beginPath()
-      this.trailGraphics.moveTo(s.selfBody[0].x, s.selfBody[0].y)
-      for (let i = 1; i < s.selfBody.length; i++) this.trailGraphics.lineTo(s.selfBody[i].x, s.selfBody[i].y)
-      this.trailGraphics.strokePath()
+      this.trailGraphics.lineStyle(6, 0xffaa00, 0.4)
+      for (let i = 1; i < s.selfBody.length; i++) {
+        const a = s.selfBody[i - 1]
+        const b = s.selfBody[i]
+        this.trailGraphics.beginPath()
+        this.trailGraphics.moveTo(a.x, a.y)
+        this.trailGraphics.lineTo(b.x, b.y)
+        this.trailGraphics.strokePath()
+      }
     }
   }
 

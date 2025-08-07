@@ -343,7 +343,7 @@ setInterval(() => {
 
 // --- Simulation loop per room ---
 const TICK_RATE = 20; // 20 Hz
-const BROADCAST_RATE = 4; // 4 Hz snapshots to players
+const BROADCAST_RATE = 10; // 10 Hz snapshots to players for smoother motion
 setInterval(() => {
   const dt = 1 / TICK_RATE;
   for (const room of roomManager.listRooms()) {

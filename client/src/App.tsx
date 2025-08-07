@@ -181,7 +181,7 @@ function App() {
       if (wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({ t: 'input', playerId, directionRad: angle, boosting }))
       }
-    }, 50)
+    }, 33)
     return () => clearInterval(id)
   }, [playerId, boosting, players])
 
