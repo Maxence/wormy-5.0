@@ -168,22 +168,19 @@ function App() {
     const id = setInterval(() => {
       if (!wsRef.current || !playerId) return
       const scene = phaserSceneRef.current
+      const ptr = scene ? ((scene as any).getPointerWorld() as { x: number; y: number }) : null
+      const snap = currSnapshotRef.current
       let angle = 0
-      if (scene) {
-        const cam = (scene.cameras.main)
-        // world pos of pointer already computed in scene
-        const ptr = (scene as any).getPointerWorld() as { x: number; y: number }
-        const me = players.find(p => p.id === playerId)
-        if (me && ptr) {
-          angle = Math.atan2(ptr.y - me.position.y, ptr.x - me.position.x)
-        }
+      if (ptr && snap) {
+        const me = snap.players.find(p => p.id === playerId)
+        if (me) angle = Math.atan2(ptr.y - me.position.y, ptr.x - me.position.x)
       }
       if (wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({ t: 'input', playerId, directionRad: angle, boosting }))
       }
     }, 33)
     return () => clearInterval(id)
-  }, [playerId, boosting, players])
+  }, [playerId, boosting])
 
   // Initialize Phaser game
   useEffect(() => {
