@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "postinstall": "echo workspaces ready",
-    "dev": "concurrently -c "blue,green,magenta" "npm --workspace server run dev" "npm --workspace client run dev" "npm --workspace admin run dev""
+    "dev": "concurrently -c \"blue,green,magenta\" \"npm --workspace server run dev\" \"npm --workspace client run dev\" \"npm --workspace admin run dev\""
   },
   "devDependencies": {
     "concurrently": "^9.2.0"
