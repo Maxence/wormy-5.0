@@ -43,6 +43,7 @@ function App() {
   const minimapRef = useRef<HTMLCanvasElement | null>(null)
   const phaserContainerRef = useRef<HTMLDivElement | null>(null)
   const phaserSceneRef = useRef<GameScene | null>(null)
+  const [fps, setFps] = useState<number | null>(null)
   const mousePos = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
   const playerHistories = useRef<Map<string, Vector2[]>>(new Map())
   type Particle = { x: number; y: number; vx: number; vy: number; life: number; maxLife: number; size: number; color: string }
@@ -228,14 +229,51 @@ function App() {
     }
   }, [players, foods, leaderboard, playerId])
 
+  // Poll FPS from Phaser loop
+  useEffect(() => {
+    const id = setInterval(() => {
+      const scene = phaserSceneRef.current as unknown as { game?: any } | null
+      const val = scene?.game?.loop?.actualFps
+      if (typeof val === 'number' && isFinite(val)) setFps(Math.round(val))
+    }, 500)
+    return () => clearInterval(id)
+  }, [])
+
+  // Draw minimap from latest snapshot
+  useEffect(() => {
+    const mini = minimapRef.current
+    if (!mini) return
+    const ctx = mini.getContext('2d')
+    if (!ctx) return
+    mini.width = 200; mini.height = 200
+    ctx.fillStyle = '#111'; ctx.fillRect(0, 0, mini.width, mini.height)
+    const ms = mapSize || 5000
+    const toMini = (x: number, y: number) => {
+      const nx = (x + ms) / (2 * ms)
+      const ny = (y + ms) / (2 * ms)
+      return { x: nx * mini.width, y: (1 - ny) * mini.height }
+    }
+    for (const p of players) {
+      const pos = toMini(p.position.x, p.position.y)
+      ctx.fillStyle = p.id === playerId ? '#f1c40f' : '#3498db'
+      ctx.fillRect(pos.x - 2, pos.y - 2, 4, 4)
+    }
+    ctx.strokeStyle = '#444'
+    ctx.strokeRect(0.5, 0.5, mini.width - 1, mini.height - 1)
+  }, [players, mapSize, playerId])
+
   return (
     <>
       <div ref={phaserContainerRef} style={{ position: 'fixed', inset: 0 }} />
-      <div style={{ position: 'fixed', top: 8, right: 8, background: 'rgba(0,0,0,0.5)', padding: 8, color: '#fff', borderRadius: 6 }}>
+      <div style={{ position: 'fixed', top: 8, right: 8, background: 'rgba(0,0,0,0.6)', padding: 10, color: '#fff', borderRadius: 8, minWidth: 240 }}>
         <div>Player: <input value={playerName} onChange={(e) => setPlayerName(e.target.value)} /></div>
         <div>Room: {roomId ?? '—'}</div>
         <div>Player ID: {playerId ?? '—'}</div>
         <div>Boost: hold Space</div>
+        <div>Status: {status}</div>
+        <div>RTT: {rttMs ?? '—'} ms</div>
+        <div>FPS: {fps ?? '—'}</div>
+        {joinError && <div style={{ color: '#ff7675' }}>Error: {joinError}</div>}
       </div>
       <canvas ref={minimapRef} style={{ position: 'fixed', right: 12, bottom: 12, width: 200, height: 200, border: '1px solid #333' }} />
       {!roomId && (
