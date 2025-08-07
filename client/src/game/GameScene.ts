@@ -16,8 +16,10 @@ export default class GameScene extends Phaser.Scene {
   private latest: WsState | null = null
   private foodSprites: Phaser.GameObjects.Image[] = []
   private playerSprites: Map<string, Phaser.GameObjects.Image> = new Map()
-  private foodPoolSize = 400
+  private foodPoolSize = 200
   private dotTextureKey = 'dot'
+  private pointerWorld: Vector2 = { x: 0, y: 0 }
+  private grid!: Phaser.GameObjects.Graphics
 
   constructor() {
     super(GameScene.KEY)
@@ -42,6 +44,11 @@ export default class GameScene extends Phaser.Scene {
       this.foodSprites.push(s)
     }
     this.cameras.main.setBackgroundColor('#0a0a0a')
+    this.grid = this.add.graphics({ depth: 1 })
+    this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
+      const wp = this.cameras.main.getWorldPoint(p.x, p.y)
+      this.pointerWorld = { x: wp.x, y: wp.y }
+    })
   }
 
   setSnapshot(s: WsState, playerId: string | null) {
@@ -106,7 +113,30 @@ export default class GameScene extends Phaser.Scene {
     }
     // hide rest
     for (; idx < this.foodSprites.length; idx++) this.foodSprites[idx].setVisible(false)
+
+    // grid
+    this.grid.clear()
+    this.grid.lineStyle(1, 0x333333, 1)
+    const step = 200
+    const left = Math.floor((cam.worldView.x - margin) / step) * step
+    const right = Math.ceil((cam.worldView.right + margin) / step) * step
+    const top = Math.floor((cam.worldView.y - margin) / step) * step
+    const bottom = Math.ceil((cam.worldView.bottom + margin) / step) * step
+    for (let x = left; x <= right; x += step) {
+      this.grid.beginPath()
+      this.grid.moveTo(x, top)
+      this.grid.lineTo(x, bottom)
+      this.grid.strokePath()
+    }
+    for (let y = top; y <= bottom; y += step) {
+      this.grid.beginPath()
+      this.grid.moveTo(left, y)
+      this.grid.lineTo(right, y)
+      this.grid.strokePath()
+    }
   }
+
+  getPointerWorld(): Vector2 { return this.pointerWorld }
 }
 
 
