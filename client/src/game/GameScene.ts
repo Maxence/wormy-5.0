@@ -169,12 +169,11 @@ export default class GameScene extends Phaser.Scene {
       this.grid.strokePath()
     }
 
-    // draw local snake body as a smooth path from head history (avoids popping)
+    // draw local snake body as a single stroked path (fast and smooth)
     this.trailGraphics.clear()
     const myTarget = this.playerTargets.get(this.playerId || '')
     if (myTarget) {
       const head = { x: myTarget.x, y: myTarget.y }
-      // prepend head and resample at fixed spacing
       if (this.myPath.length === 0) this.myPath.push({ ...head })
       const last = this.myPath[0]
       const dx = head.x - last.x, dy = head.y - last.y
@@ -182,26 +181,38 @@ export default class GameScene extends Phaser.Scene {
       if (dist > 0) {
         const steps = Math.floor(dist / this.segmentDist)
         for (let i = 1; i <= steps; i++) {
-          const t = i / steps
+          const t = i / Math.max(1, steps)
           this.myPath.unshift({ x: last.x + dx * t, y: last.y + dy * t })
         }
       }
-      // trim to length based on score
+      // trim total path length to target
       const targetLen = computeTargetLength(myTarget.score)
       let accum = 0
       for (let i = 1; i < this.myPath.length; i++) {
         accum += Math.hypot(this.myPath[i].x - this.myPath[i - 1].x, this.myPath[i].y - this.myPath[i - 1].y)
         if (accum > targetLen) { this.myPath.length = i; break }
       }
-      // render circles tail to head
-      const r = computeRadius(myTarget.score)
-      for (let i = this.myPath.length - 1; i >= 0; i--) {
-        const pt = this.myPath[i]
-        const t = 1 - i / Math.max(1, this.myPath.length - 1)
-        const rr = r * (0.55 + 0.45 * t)
-        this.trailGraphics.fillStyle(0xffaa00, 0.9)
-        this.trailGraphics.fillCircle(pt.x, pt.y, rr)
+      // decimate path to cap number of vertices (perf + stability)
+      const maxVerts = 220
+      let pathToDraw = this.myPath
+      if (this.myPath.length > maxVerts) {
+        const stride = Math.ceil(this.myPath.length / maxVerts)
+        const tmp: Vector2[] = []
+        for (let i = 0; i < this.myPath.length; i += stride) tmp.push(this.myPath[i])
+        // ensure head is included
+        if (tmp[0].x !== this.myPath[0].x || tmp[0].y !== this.myPath[0].y) tmp.unshift(this.myPath[0])
+        pathToDraw = tmp
       }
+      // stroke the body in one pass
+      const r = computeRadius(myTarget.score)
+      this.trailGraphics.lineStyle(r * 1.6, 0xffaa00, 0.9)
+      this.trailGraphics.beginPath()
+      this.trailGraphics.moveTo(pathToDraw[0].x, pathToDraw[0].y)
+      for (let i = 1; i < pathToDraw.length; i++) this.trailGraphics.lineTo(pathToDraw[i].x, pathToDraw[i].y)
+      this.trailGraphics.strokePath()
+      // draw a head disk on top
+      this.trailGraphics.fillStyle(0xff6600, 1)
+      this.trailGraphics.fillCircle(head.x, head.y, r * 0.9)
     }
   }
 
