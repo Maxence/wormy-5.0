@@ -46,6 +46,7 @@ function App() {
   const [mapSize, setMapSize] = useState<number>(5000)
   const [roomConfig, setRoomConfig] = useState<RoomConfig | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
+  const [logs, setLogs] = useState<{ ts: number; type: string; roomId?: string; playerId?: string; name?: string; details?: unknown }[]>([])
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
   const apiBase = useMemo(() => `http://${location.hostname}:4000`, [])
@@ -66,6 +67,9 @@ function App() {
       try {
         const msg = JSON.parse(String(ev.data)) as Snapshot
         if (msg.t === 'snapshot') setSnapshot(msg)
+        if ((msg as any).t === 'log') {
+          setLogs((prev) => [...prev.slice(-999), (msg as any).entry])
+        }
       } catch {}
     }
   }
@@ -223,6 +227,15 @@ function App() {
               </li>
             ))}
           </ol>
+        </Card>
+        <Card title="Live logs">
+          <div style={{ maxHeight: 260, overflow: 'auto', fontFamily: 'monospace', fontSize: 12 }}>
+            {logs.slice().reverse().map((l, i) => (
+              <div key={i}>
+                [{new Date(l.ts).toLocaleTimeString()}] {l.type} {l.roomId ? `room=${l.roomId.slice(0,8)}` : ''} {l.playerId ? `player=${l.playerId.slice(0,8)}` : ''} {l.name ? `name=${l.name}` : ''}
+              </div>
+            ))}
+          </div>
         </Card>
         {selectedRoom && (
           <Card title="Room config">

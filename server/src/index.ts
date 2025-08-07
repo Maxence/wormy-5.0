@@ -103,6 +103,28 @@ type AdminSpectatorMeta = {
   subscribedRoomId: string | null;
 };
 
+// --- Admin logs ---
+type AdminLogEntry = {
+  ts: number;
+  type: string;
+  roomId?: string;
+  playerId?: string;
+  name?: string;
+  details?: unknown;
+};
+const adminLogs: AdminLogEntry[] = [];
+const MAX_LOGS = 1000;
+function addLog(entry: AdminLogEntry) {
+  adminLogs.push(entry);
+  if (adminLogs.length > MAX_LOGS) adminLogs.shift();
+  // broadcast to admin WS listeners
+  (wssAdmin.clients as Set<WebSocket>).forEach((clientWs) => {
+    if (clientWs.readyState === clientWs.OPEN) {
+      try { clientWs.send(JSON.stringify({ t: 'log', entry })); } catch {}
+    }
+  });
+}
+
 // --- Managers ---
 class RoomManager {
   private rooms: Map<string, GameRoom> = new Map();
@@ -130,6 +152,7 @@ class RoomManager {
       lastBroadcastAt: 0,
     };
     this.rooms.set(id, room);
+    addLog({ ts: Date.now(), type: 'room_open', roomId: id, details: { config: room.config } });
     return room;
   }
 
@@ -149,6 +172,7 @@ class RoomManager {
     }
     room.spectators.clear();
     this.rooms.delete(id);
+    addLog({ ts: Date.now(), type: 'room_close', roomId: id });
     return true;
   }
 
@@ -269,6 +293,7 @@ wss.on('connection', (ws: WebSocket) => {
         };
         room.players.set(playerId, player);
         meta.roomId = room.id;
+        addLog({ ts: Date.now(), type: 'player_join', roomId: room.id, playerId, name });
         ws.send(JSON.stringify({ t: 'joined', roomId: room.id, playerId }));
         return;
       }
@@ -284,6 +309,7 @@ wss.on('connection', (ws: WebSocket) => {
         if (!player) return;
         if (typeof msg.directionRad === 'number') player.targetDirectionRad = msg.directionRad;
         if (typeof msg.boosting === 'boolean') player.boosting = msg.boosting;
+        addLog({ ts: Date.now(), type: 'player_input', roomId: room.id, playerId: player.id, details: { directionRad: player.targetDirectionRad, boosting: player.boosting } });
         return;
       }
 
@@ -315,6 +341,7 @@ wss.on('connection', (ws: WebSocket) => {
         for (const [pid, p] of room.players) {
           if (p.ws === ws) room.players.delete(pid);
         }
+        addLog({ ts: Date.now(), type: 'player_leave', roomId: meta.roomId, playerId: meta.id });
       }
     }
     wsToMeta.delete(ws);
@@ -670,6 +697,7 @@ app.post('/admin/rooms/:id/kick', (req, res) => {
   if (!player) return res.status(404).json({ error: 'PLAYER_NOT_FOUND' });
   try { player.ws.close(4000, 'kicked'); } catch {}
   room.players.delete(playerId);
+  addLog({ ts: Date.now(), type: 'admin_kick', roomId: room.id, playerId });
   res.json({ ok: true });
 });
 
@@ -678,16 +706,23 @@ app.post('/admin/ban', (req, res) => {
   const name = rawName.trim();
   if (!name) return res.status(400).json({ error: 'INVALID_NAME' });
   bannedNames.add(name.toLowerCase());
+  addLog({ ts: Date.now(), type: 'admin_ban', details: { name } });
   // disconnect any matching players
   for (const room of roomManager.listRooms()) {
     for (const [id, p] of room.players) {
       if (p.name.toLowerCase() === name.toLowerCase()) {
         try { p.ws.close(4001, 'banned'); } catch {}
         room.players.delete(id);
+        addLog({ ts: Date.now(), type: 'admin_ban_disconnect', roomId: room.id, playerId: id, name: p.name });
       }
     }
   }
   res.json({ ok: true });
+});
+
+// Admin logs endpoint
+app.get('/admin/logs', (_req, res) => {
+  res.json({ logs: adminLogs });
 });
 
 const PORT = Number(process.env.PORT || 4000);
