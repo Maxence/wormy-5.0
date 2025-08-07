@@ -50,12 +50,13 @@ function App() {
     return h % 360
   }
 
-  const wsUrl = useMemo(() => {
+  const wsUrlCandidates = useMemo(() => {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-    const host = location.hostname
+    const hosts = [location.hostname, '127.0.0.1', 'localhost']
     const port = 4000
-    return `${proto}://${host}:${port}/ws`
+    return hosts.map(h => `${proto}://${h}:${port}/ws`)
   }, [])
+  const urlIndexRef = useRef(0)
 
   // Connect and join on demand
   const connectAndJoin = () => {
@@ -68,13 +69,21 @@ function App() {
       return
     }
     setStatus('connecting')
-    const ws = new WebSocket(wsUrl)
+    const url = wsUrlCandidates[urlIndexRef.current % wsUrlCandidates.length]
+    const ws = new WebSocket(url)
     wsRef.current = ws
     ws.onopen = () => {
       setStatus('connected')
       ws.send(JSON.stringify({ t: 'hello', name: playerName }))
     }
-    ws.onclose = () => setStatus('disconnected')
+    ws.onclose = () => {
+      setStatus('disconnected')
+      // try next candidate next time
+      urlIndexRef.current = (urlIndexRef.current + 1) % wsUrlCandidates.length
+    }
+    ws.onerror = (e) => {
+      setJoinError('WS_CONNECT_FAILED')
+    }
     ws.onmessage = (event) => {
       try {
         const msg: WsMessage = JSON.parse(String(event.data))
@@ -415,11 +424,11 @@ function App() {
               {joinError && <div style={{ color: '#ff7675' }}>Error: {joinError}</div>}
               <button onClick={() => { connectAndJoin() }} disabled={status === 'connecting'}>
                 Play
-              </button>
+        </button>
               <div style={{ opacity: 0.8, fontSize: 12 }}>Status: {status} • Server ws://{location.hostname}:4000/ws</div>
             </div>
           </div>
-        </div>
+      </div>
       )}
     </>
   )
