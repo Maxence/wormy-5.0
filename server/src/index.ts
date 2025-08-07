@@ -353,28 +353,46 @@ setInterval(() => {
     // Collisions detection
     const deaths: string[] = [];
     const playersArr = Array.from(room.players.values());
+    // helper: distance squared between point and segment
+    const distPointSeg2 = (px: number, py: number, ax: number, ay: number, bx: number, by: number) => {
+      const abx = bx - ax; const aby = by - ay;
+      const apx = px - ax; const apy = py - ay;
+      const ab2 = abx*abx + aby*aby;
+      const t = ab2 > 0 ? Math.max(0, Math.min(1, (apx*abx + apy*aby) / ab2)) : 0;
+      const qx = ax + t * abx; const qy = ay + t * aby;
+      const dx = px - qx; const dy = py - qy; return dx*dx + dy*dy;
+    };
     for (let i = 0; i < playersArr.length; i++) {
       const a = playersArr[i];
       const aR = computeRadius(a.score);
-      for (let k = 0; k < a.bodyPoints.length - 10; k++) {
-        const pt = a.bodyPoints[k];
-        const dist2 = distanceSquared(a.position, pt);
-        if (dist2 < aR * aR * 0.85) { deaths.push(a.id); break; }
+      // self collision against segments (skip last 12 points near head)
+      for (let k = 0; k < a.bodyPoints.length - 12; k++) {
+        const p1 = a.bodyPoints[k];
+        const p2 = a.bodyPoints[Math.min(k+1, a.bodyPoints.length - 13)];
+        const d2 = distPointSeg2(a.position.x, a.position.y, p1.x, p1.y, p2.x, p2.y);
+        if (d2 < (aR * aR) * 0.7) { deaths.push(a.id); break; }
       }
       if (deaths.includes(a.id)) continue;
       for (let j = 0; j < playersArr.length; j++) {
         if (i === j) continue;
         const b = playersArr[j];
         const bR = computeRadius(b.score);
-        for (let k = 0; k < b.bodyPoints.length - 10; k++) {
-          const pt = b.bodyPoints[k];
-          const dist2 = distanceSquared(a.position, pt);
-          if (dist2 < (aR + bR) * (aR + bR) * 0.25) { deaths.push(a.id); break; }
+        // head vs body segments of b, skip last 12 points near b's head
+        for (let k = 0; k < b.bodyPoints.length - 12; k++) {
+          const p1 = b.bodyPoints[k];
+          const p2 = b.bodyPoints[Math.min(k+1, b.bodyPoints.length - 13)];
+          const d2 = distPointSeg2(a.position.x, a.position.y, p1.x, p1.y, p2.x, p2.y);
+          const bodyThickness = Math.max(3, bR * 0.6);
+          if (d2 < (aR + bodyThickness) * (aR + bodyThickness)) { deaths.push(a.id); break; }
         }
         if (deaths.includes(a.id)) break;
+        // head-to-head
         const hh2 = distanceSquared(a.position, b.position);
-        if (hh2 < (aR + bR) * (aR + bR) * 0.25) {
-          if (a.score <= b.score) deaths.push(a.id); else deaths.push(b.id);
+        const thresh = (aR + bR) * (aR + bR) * 0.5;
+        if (hh2 < thresh) {
+          if (a.score < b.score) deaths.push(a.id);
+          else if (b.score < a.score) deaths.push(b.id);
+          else deaths.push(a.id); // tie-break
         }
       }
     }
@@ -419,7 +437,7 @@ setInterval(() => {
       .map((p) => ({ id: p.id, name: p.name, score: Math.round(p.score) }));
     const foods = room.foods.slice(0, 500);
     const players = Array.from(room.players.values()).map((p) => ({ id: p.id, name: p.name, score: Math.round(p.score), position: p.position }));
-    const payload = JSON.stringify({ t: 'state', roomId: room.id, leaderboard: lb, players, foods });
+    const payload = JSON.stringify({ t: 'state', roomId: room.id, leaderboard: lb, players, foods, mapSize: room.config.mapSize, serverNow: Date.now() });
     for (const p of room.players.values()) {
       if (p.ws.readyState === p.ws.OPEN) {
         try { p.ws.send(payload); } catch {}
