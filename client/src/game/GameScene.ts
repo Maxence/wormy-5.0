@@ -14,13 +14,16 @@ export default class GameScene extends Phaser.Scene {
   static KEY = 'GameScene'
   private playerId: string | null = null
   private latest: WsState | null = null
-  private foodSprites: Phaser.GameObjects.Image[] = []
   private playerSprites: Map<string, Phaser.GameObjects.Image> = new Map()
-  private foodPoolSize = 200
+  private playerTargets: Map<string, { x: number; y: number; score: number }> = new Map()
+  private foodBlitter!: Phaser.GameObjects.Blitter
+  private foodBobs: Phaser.GameObjects.Bob[] = []
+  private foodPoolSize = 400
   private dotTextureKey = 'dot'
   private pointerWorld: Vector2 = { x: 0, y: 0 }
   private grid!: Phaser.GameObjects.Graphics
   private trailGraphics!: Phaser.GameObjects.Graphics
+  private smoothingLambda = 12 // 1/s
 
   constructor() {
     super(GameScene.KEY)
@@ -30,19 +33,20 @@ export default class GameScene extends Phaser.Scene {
     // generate a simple circle texture to reuse
     const g = this.make.graphics({ x: 0, y: 0, add: false })
     g.fillStyle(0xffffff, 1)
-    g.fillCircle(8, 8, 8)
-    g.generateTexture(this.dotTextureKey, 16, 16)
+    g.fillCircle(6, 6, 6)
+    g.generateTexture(this.dotTextureKey, 12, 12)
     g.destroy()
   }
 
   create() {
-    // pre-allocate food sprites
+    // food blitter for efficient many dots
+    this.foodBlitter = this.add.blitter(0, 0, this.dotTextureKey)
+    this.foodBlitter.setDepth(2)
     for (let i = 0; i < this.foodPoolSize; i++) {
-      const s = this.add.image(0, 0, this.dotTextureKey)
-      s.setVisible(false)
-      s.setScale(0.15)
-      s.setTint(0x2ecc71)
-      this.foodSprites.push(s)
+      const bob = this.foodBlitter.create(0, 0)
+      // @ts-expect-error - bob.visible exists
+      ;(bob as any).visible = false
+      this.foodBobs.push(bob)
     }
     this.cameras.main.setBackgroundColor('#0a0a0a')
     this.grid = this.add.graphics({ depth: 1 })
@@ -63,7 +67,7 @@ export default class GameScene extends Phaser.Scene {
     if (!this.latest) return
     const s = this.latest
 
-    // players
+    // players: set targets, create sprites if needed
     const playerIds = new Set<string>()
     for (const p of s.players) {
       let sprite = this.playerSprites.get(p.id)
@@ -73,23 +77,12 @@ export default class GameScene extends Phaser.Scene {
       }
       const isMe = p.id === this.playerId
       const r = Math.max(6, 6 + Math.sqrt(Math.max(0, p.score)) * 0.3)
-      if (isMe) {
-        // bright and bigger for the local player
-        sprite.setTint(0xff5252)
-        sprite.setScale(Math.max(r / 6, 1.2))
-        sprite.setDepth(10)
-      } else {
-        sprite.setTint(0x00aaff)
-        sprite.setScale(r / 8)
-        sprite.setDepth(5)
-      }
-      sprite.setPosition(p.position.x, p.position.y)
       sprite.setVisible(true)
+      sprite.setDepth(isMe ? 10 : 5)
+      sprite.setTint(isMe ? 0xff5252 : 0x00aaff)
+      sprite.setScale(isMe ? Math.max(r / 6, 1.2) : r / 8)
+      this.playerTargets.set(p.id, { x: p.position.x, y: p.position.y, score: p.score })
       playerIds.add(p.id)
-      if (isMe) {
-        this.cameras.main.centerOn(p.position.x, p.position.y)
-        this.cameras.main.setZoom(computeZoom(p.score))
-      }
     }
     // hide removed players
     for (const [id, spr] of this.playerSprites) {
@@ -99,22 +92,25 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    // foods
+    // foods with blitter
     let idx = 0
     const cam = this.cameras.main
     const view = new Phaser.Geom.Rectangle(cam.worldView.x, cam.worldView.y, cam.worldView.width, cam.worldView.height)
     const margin = 400 / Math.max(cam.zoom, 0.01)
     view.x -= margin; view.y -= margin; view.width += margin * 2; view.height += margin * 2
     for (const f of s.foods) {
-      if (idx >= this.foodSprites.length) break
+      if (idx >= this.foodBobs.length) break
       if (!view.contains(f.position.x, f.position.y)) continue
-      const spr = this.foodSprites[idx++]
-      spr.setPosition(f.position.x, f.position.y)
-      spr.setScale(0.15)
-      spr.setVisible(true)
+      const bob = this.foodBobs[idx++]
+      bob.x = f.position.x; bob.y = f.position.y
+      // @ts-expect-error
+      ;(bob as any).visible = true
     }
     // hide rest
-    for (; idx < this.foodSprites.length; idx++) this.foodSprites[idx].setVisible(false)
+    for (; idx < this.foodBobs.length; idx++) {
+      // @ts-expect-error
+      ;(this.foodBobs[idx] as any).visible = false
+    }
 
     // grid
     this.grid.clear()
@@ -149,6 +145,22 @@ export default class GameScene extends Phaser.Scene {
   }
 
   getPointerWorld(): Vector2 { return this.pointerWorld }
+
+  update(time: number, deltaMs: number): void {
+    const dt = Math.max(0.001, deltaMs / 1000)
+    const k = 1 - Math.exp(-this.smoothingLambda * dt)
+    // smooth move players toward targets
+    for (const [id, spr] of this.playerSprites) {
+      const t = this.playerTargets.get(id)
+      if (!t) continue
+      spr.x += (t.x - spr.x) * k
+      spr.y += (t.y - spr.y) * k
+      if (id === this.playerId) {
+        this.cameras.main.centerOn(spr.x, spr.y)
+        this.cameras.main.setZoom(computeZoom(t.score))
+      }
+    }
+  }
 }
 
 
