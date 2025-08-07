@@ -11,6 +11,9 @@ type WsMessage =
 function App() {
   const [rttMs, setRttMs] = useState<number | null>(null)
   const [status, setStatus] = useState<'disconnected'|'connecting'|'connected'>('disconnected')
+  const [playerName, setPlayerName] = useState('Player')
+  const [roomId, setRoomId] = useState<string | null>(null)
+  const [playerId, setPlayerId] = useState<string | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const lastPings = useRef<Map<number, number>>(new Map())
 
@@ -25,7 +28,10 @@ function App() {
     setStatus('connecting')
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
-    ws.onopen = () => setStatus('connected')
+    ws.onopen = () => {
+      setStatus('connected')
+      ws.send(JSON.stringify({ t: 'hello', name: playerName }))
+    }
     ws.onclose = () => setStatus('disconnected')
     ws.onmessage = (event) => {
       try {
@@ -40,6 +46,10 @@ function App() {
             setRttMs(Date.now() - sentAt)
             lastPings.current.delete(msg.pingId)
           }
+        } else if ((msg as any).t === 'joined') {
+          const anyMsg = msg as any
+          setRoomId(anyMsg.roomId)
+          setPlayerId(anyMsg.playerId)
         }
       } catch {
       }
@@ -59,6 +69,11 @@ function App() {
     <>
       <h1>Wormy Client</h1>
       <p>Status: {status}</p>
+      <p>
+        Player: <input value={playerName} onChange={(e) => setPlayerName(e.target.value)} />
+      </p>
+      <p>Room: {roomId ?? '—'}</p>
+      <p>Player ID: {playerId ?? '—'}</p>
       <p>Latency (RTT): {rttMs ?? '—'} ms</p>
     </>
   )
