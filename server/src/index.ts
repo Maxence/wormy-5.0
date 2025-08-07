@@ -195,6 +195,14 @@ function computeSuctionRadius(score: number): number {
   return Math.min(600, 120 + Math.sqrt(Math.max(0, score)) * 14);
 }
 
+function computeMaxTurnRate(score: number): number {
+  // rad/s — very nimble when small, heavier when large
+  const fast = 7.0; // small worm
+  const slow = 2.2; // very large worm
+  const t = Math.min(1, Math.sqrt(Math.max(0, score)) / 80);
+  return slow + (fast - slow) * (1 - t);
+}
+
 function trimBodyToLength(points: Vector2[], targetLength: number): void {
   if (points.length <= 1) return;
   let total = 0;
@@ -356,8 +364,8 @@ setInterval(() => {
     const t0 = (globalThis as any).performance?.now ? (globalThis as any).performance.now() : Date.now();
     // Move players (bounded turn rate)
     for (const player of room.players.values()) {
-      // limit rotation to ~2 rad/s
-      const maxTurn = 2 * dt;
+      // dynamic turn rate: higher when small so the player can coil
+      const maxTurn = computeMaxTurnRate(player.score) * dt;
       player.directionRad = rotateTowards(player.directionRad, player.targetDirectionRad, maxTurn);
       const speed = computeSpeed(player.score, player.boosting);
       const dx = Math.cos(player.directionRad) * speed * dt;
