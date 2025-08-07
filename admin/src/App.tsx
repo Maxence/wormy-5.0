@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
 type Snapshot = { t: 'snapshot'; roomId: string; players: { id: string; name: string; score: number; position: { x: number; y: number } }[] }
+type RoomConfig = { mapSize: number; maxPlayers: number; foodCoveragePercent: number; foodSpawnRatePerSecond: number }
 
 function useAdminRooms(apiBase: string, token: string | null) {
   const [rooms, setRooms] = useState<{ id: string; players: number; maxPlayers: number; isClosed: boolean }[]>([])
@@ -43,6 +44,7 @@ function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [banName, setBanName] = useState('')
   const [mapSize, setMapSize] = useState<number>(5000)
+  const [roomConfig, setRoomConfig] = useState<RoomConfig | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
@@ -119,7 +121,10 @@ function App() {
     const fetchConfig = async () => {
       const res = await fetch(`${apiBase}/admin/rooms/${selectedRoom}/config`, { headers: { Authorization: `Bearer ${token}` } })
       const data = await res.json()
-      if (data?.config?.mapSize) setMapSize(data.config.mapSize)
+      if (data?.config) {
+        setRoomConfig(data.config)
+        if (typeof data.config.mapSize === 'number') setMapSize(data.config.mapSize)
+      }
     }
     fetchConfig()
   }, [selectedRoom, token, apiBase])
@@ -187,6 +192,53 @@ function App() {
           <h2>Snapshot {snapshot?.roomId ? `(${snapshot.roomId.slice(0,8)})` : ''}</h2>
           <div style={{ marginBottom: 8 }}>Map size: {mapSize}</div>
           <canvas ref={canvasRef} width={400} height={400} style={{ border: '1px solid #ccc', background: '#111', display: 'block', marginBottom: 8 }} />
+          {selectedRoom && (
+            <div style={{ marginBottom: 12 }}>
+              <h3>Room config</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 8, maxWidth: 420 }}>
+                <label>mapSize</label>
+                <input type="number" value={roomConfig?.mapSize ?? ''} onChange={(e) => {
+                  const v = Number(e.target.value); if (!isNaN(v) && roomConfig) { setRoomConfig({ ...roomConfig, mapSize: v }); setMapSize(v) }
+                }} />
+                <label>maxPlayers</label>
+                <input type="number" value={roomConfig?.maxPlayers ?? ''} onChange={(e) => {
+                  const v = Number(e.target.value); if (!isNaN(v) && roomConfig) setRoomConfig({ ...roomConfig, maxPlayers: v })
+                }} />
+                <label>foodCoveragePercent</label>
+                <input type="number" value={roomConfig?.foodCoveragePercent ?? ''} onChange={(e) => {
+                  const v = Number(e.target.value); if (!isNaN(v) && roomConfig) setRoomConfig({ ...roomConfig, foodCoveragePercent: v })
+                }} />
+                <label>foodSpawnRatePerSecond</label>
+                <input type="number" value={roomConfig?.foodSpawnRatePerSecond ?? ''} onChange={(e) => {
+                  const v = Number(e.target.value); if (!isNaN(v) && roomConfig) setRoomConfig({ ...roomConfig, foodSpawnRatePerSecond: v })
+                }} />
+              </div>
+              <div style={{ marginTop: 8 }}>
+                <button onClick={async () => {
+                  if (!token || !selectedRoom || !roomConfig) return
+                  const res = await fetch(`${apiBase}/admin/rooms/${selectedRoom}/config`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                    body: JSON.stringify(roomConfig)
+                  });
+                  const data = await res.json();
+                  if (data?.config) {
+                    setRoomConfig(data.config)
+                    if (typeof data.config.mapSize === 'number') setMapSize(data.config.mapSize)
+                  }
+                }}>Save config</button>
+                <button style={{ marginLeft: 8 }} onClick={async () => {
+                  if (!token || !selectedRoom) return
+                  const res = await fetch(`${apiBase}/admin/rooms/${selectedRoom}/config`, { headers: { Authorization: `Bearer ${token}` } })
+                  const data = await res.json();
+                  if (data?.config) {
+                    setRoomConfig(data.config)
+                    if (typeof data.config.mapSize === 'number') setMapSize(data.config.mapSize)
+                  }
+                }}>Reload</button>
+              </div>
+            </div>
+          )}
           <ol>
             {snapshot?.players?.slice(0, 50).map(p => (
               <li key={p.id}>
