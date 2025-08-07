@@ -430,7 +430,13 @@ setInterval(() => {
 
 // --- Admin WS (spectator) ---
 wssAdmin.on('connection', (ws: WebSocket, req) => {
-  const token = req.headers['authorization']?.toString().replace('Bearer ', '') || '';
+  let token = req.headers['authorization']?.toString().replace('Bearer ', '') || '';
+  try {
+    // Fallback to query param for browsers
+    const urlStr = req.url || '';
+    const parsed = new URL(urlStr, 'http://localhost');
+    if (!token) token = parsed.searchParams.get('token') || '';
+  } catch {}
   if (token !== ADMIN_TOKEN) {
     try { ws.close(1008, 'unauthorized'); } catch {}
     return;
