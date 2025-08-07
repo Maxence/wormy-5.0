@@ -1,10 +1,7 @@
-import { StrictMode } from 'react'
+// StrictMode can double-invoke effects in dev; disable to avoid double init of Phaser
+// import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-)
+createRoot(document.getElementById('root')!).render(<App />)
