@@ -3,6 +3,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import http from 'http';
 import cors from 'cors';
 import { v4 as uuidv4 } from 'uuid';
+import { z } from 'zod';
 
 const app = express();
 app.use(cors());
@@ -35,6 +36,7 @@ type Player = {
   score: number;
   position: Vector2;
   directionRad: number;
+  targetDirectionRad: number;
   boosting: boolean;
   ws: WebSocket;
   bodyPoints: Vector2[];
@@ -170,6 +172,19 @@ function trimBodyToLength(points: Vector2[], targetLength: number): void {
 
 function jitter(n: number): number { return (Math.random() - 0.5) * n; }
 
+function normalizeAngle(angle: number): number {
+  let a = angle;
+  while (a <= -Math.PI) a += 2 * Math.PI;
+  while (a > Math.PI) a -= 2 * Math.PI;
+  return a;
+}
+
+function rotateTowards(current: number, target: number, maxDelta: number): number {
+  const diff = normalizeAngle(target - current);
+  const clamped = Math.max(-maxDelta, Math.min(maxDelta, diff));
+  return normalizeAngle(current + clamped);
+}
+
 wss.on('connection', (ws: WebSocket) => {
   wsToMeta.set(ws, {
     id: uuidv4(),
@@ -198,6 +213,7 @@ wss.on('connection', (ws: WebSocket) => {
           score: 10,
           position: { x: 0, y: 0 },
           directionRad: 0,
+          targetDirectionRad: 0,
           boosting: false,
           ws,
           bodyPoints: [{ x: 0, y: 0 }],
@@ -216,7 +232,7 @@ wss.on('connection', (ws: WebSocket) => {
         if (!room) return;
         const player = room.players.get(msg.playerId);
         if (!player) return;
-        if (typeof msg.directionRad === 'number') player.directionRad = msg.directionRad;
+        if (typeof msg.directionRad === 'number') player.targetDirectionRad = msg.directionRad;
         if (typeof msg.boosting === 'boolean') player.boosting = msg.boosting;
         return;
       }
@@ -274,8 +290,11 @@ setInterval(() => {
   const dt = 1 / TICK_RATE;
   for (const room of roomManager.listRooms()) {
     if (room.isClosed) continue;
-    // Move players
+    // Move players (bounded turn rate)
     for (const player of room.players.values()) {
+      // limit rotation to ~2 rad/s
+      const maxTurn = 2 * dt;
+      player.directionRad = rotateTowards(player.directionRad, player.targetDirectionRad, maxTurn);
       const speed = computeSpeed(player.score, player.boosting);
       const dx = Math.cos(player.directionRad) * speed * dt;
       const dy = Math.sin(player.directionRad) * speed * dt;
@@ -284,7 +303,7 @@ setInterval(() => {
       player.bodyPoints.push({ x: player.position.x, y: player.position.y });
       trimBodyToLength(player.bodyPoints, computeTargetLength(player.score));
       if (player.boosting && player.score > 1) {
-        player.score -= 0.2;
+        player.score -= Math.max(0.1, Math.min(1.5, player.score * 0.002));
         if (Math.random() < 0.3) {
           room.foods.push({ id: uuidv4(), position: { x: player.position.x + jitter(8), y: player.position.y + jitter(8) }, value: 0.5 });
         }
@@ -430,6 +449,28 @@ app.post('/admin/rooms', (req, res) => {
   const cfg = req.body?.config || {};
   const room = roomManager.createRoom(cfg);
   res.json({ roomId: room.id });
+});
+
+const RoomConfigSchema = z.object({
+  mapSize: z.number().min(1000).max(20000).optional(),
+  maxPlayers: z.number().min(2).max(500).optional(),
+  foodCoveragePercent: z.number().min(0).max(50).optional(),
+  foodSpawnRatePerSecond: z.number().min(0).max(10000).optional(),
+});
+
+app.get('/admin/rooms/:id/config', (req, res) => {
+  const room = roomManager.getRoom(req.params.id);
+  if (!room) return res.status(404).json({ error: 'NOT_FOUND' });
+  res.json({ config: room.config });
+});
+
+app.patch('/admin/rooms/:id/config', (req, res) => {
+  const room = roomManager.getRoom(req.params.id);
+  if (!room) return res.status(404).json({ error: 'NOT_FOUND' });
+  const parse = RoomConfigSchema.safeParse(req.body || {});
+  if (!parse.success) return res.status(400).json({ error: 'INVALID_CONFIG', details: parse.error.issues });
+  room.config = { ...room.config, ...parse.data };
+  res.json({ config: room.config });
 });
 
 app.delete('/admin/rooms/:id', (req, res) => {
