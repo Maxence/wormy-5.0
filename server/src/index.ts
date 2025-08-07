@@ -424,13 +424,7 @@ setInterval(() => {
     for (let i = 0; i < playersArr.length; i++) {
       const a = playersArr[i];
       const aR = computeRadius(a.score);
-      // self collision against segments (skip last 12 points near head)
-      for (let k = 0; k < a.bodyPoints.length - 12; k += 2) {
-        const p1 = a.bodyPoints[k];
-        const p2 = a.bodyPoints[Math.min(k+1, a.bodyPoints.length - 13)];
-        const d2 = distPointSeg2(a.position.x, a.position.y, p1.x, p1.y, p2.x, p2.y);
-        if (d2 < (aR * aR) * 0.7) { deaths.push(a.id); break; }
-      }
+      // NOTE: in slither-like games, self-collision does not kill. Skip self body checks.
       if (deaths.includes(a.id)) continue;
       for (let j = 0; j < playersArr.length; j++) {
         if (i === j) continue;

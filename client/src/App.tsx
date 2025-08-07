@@ -117,13 +117,14 @@ function App() {
           const anyMsg = msg as any
           setJoinError(anyMsg.error || 'JOIN_FAILED')
         } else if (msg.t === 'dead') {
-          const my = players.find(p => p.id === playerId)
-          if (my) {
+          const snap = currSnapshotRef.current
+          const me = snap?.players.find(p => p.id === playerId)
+          if (me) {
             for (let i = 0; i < 60; i++) {
               const a = Math.random() * Math.PI * 2
               const sp = 40 + Math.random() * 140
               particlesRef.current.push({
-                x: my.position.x, y: my.position.y,
+                x: me.position.x, y: me.position.y,
                 vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
                 life: 0, maxLife: 0.7 + Math.random() * 0.6,
                 size: 2 + Math.random() * 3,
@@ -131,6 +132,8 @@ function App() {
               })
             }
           }
+          // show a brief banner or change status if needed
+          setStatus('disconnected')
         } else if (msg.t === 'state') {
           prevSnapshotRef.current = currSnapshotRef.current
           currSnapshotRef.current = msg
