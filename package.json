@@ -2,8 +2,16 @@
   "name": "wormy-5.0",
   "private": true,
   "version": "0.1.0",
-  "workspaces": ["server", "client", "admin"],
+  "workspaces": [
+    "server",
+    "client",
+    "admin"
+  ],
   "scripts": {
-    "postinstall": "echo workspaces ready"
+    "postinstall": "echo workspaces ready",
+    "dev": "concurrently -c "blue,green,magenta" "npm --workspace server run dev" "npm --workspace client run dev" "npm --workspace admin run dev""
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.0"
   }
 }
