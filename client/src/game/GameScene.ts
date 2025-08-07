@@ -10,6 +10,14 @@ function computeZoom(score: number): number {
   return Math.min(1, Math.max(0.3, z))
 }
 
+function computeRadius(score: number): number {
+  return 7 + Math.sqrt(Math.max(0, score)) * 0.45
+}
+
+function computeTargetLength(score: number): number {
+  return 160 + score * 2.8
+}
+
 export default class GameScene extends Phaser.Scene {
   static KEY = 'GameScene'
   private playerId: string | null = null
@@ -27,6 +35,10 @@ export default class GameScene extends Phaser.Scene {
   private grid!: Phaser.GameObjects.Graphics
   private trailGraphics!: Phaser.GameObjects.Graphics
   private smoothingLambda = 28 // stronger smoothing for high Hz updates
+
+  // local snake reconstruction (for the local player only)
+  private myPath: Vector2[] = []
+  private segmentDist = 10
 
   constructor() {
     super(GameScene.KEY)
@@ -100,7 +112,7 @@ export default class GameScene extends Phaser.Scene {
         this.playerSprites.set(p.id, sprite)
       }
       const isMe = p.id === this.playerId
-      const r = Math.max(6, 6 + Math.sqrt(Math.max(0, p.score)) * 0.3)
+      const r = computeRadius(p.score)
       sprite.setVisible(true)
       sprite.setDepth(isMe ? 10 : 5)
       sprite.setTint(isMe ? 0xff5252 : 0x00aaff)
@@ -157,17 +169,38 @@ export default class GameScene extends Phaser.Scene {
       this.grid.strokePath()
     }
 
-    // draw self trail if provided
+    // draw local snake body as a smooth path from head history (avoids popping)
     this.trailGraphics.clear()
-    if (s.selfBody && s.selfBody.length > 2) {
-      this.trailGraphics.lineStyle(6, 0xffaa00, 0.4)
-      for (let i = 1; i < s.selfBody.length; i++) {
-        const a = s.selfBody[i - 1]
-        const b = s.selfBody[i]
-        this.trailGraphics.beginPath()
-        this.trailGraphics.moveTo(a.x, a.y)
-        this.trailGraphics.lineTo(b.x, b.y)
-        this.trailGraphics.strokePath()
+    const myTarget = this.playerTargets.get(this.playerId || '')
+    if (myTarget) {
+      const head = { x: myTarget.x, y: myTarget.y }
+      // prepend head and resample at fixed spacing
+      if (this.myPath.length === 0) this.myPath.push({ ...head })
+      const last = this.myPath[0]
+      const dx = head.x - last.x, dy = head.y - last.y
+      const dist = Math.hypot(dx, dy)
+      if (dist > 0) {
+        const steps = Math.floor(dist / this.segmentDist)
+        for (let i = 1; i <= steps; i++) {
+          const t = i / steps
+          this.myPath.unshift({ x: last.x + dx * t, y: last.y + dy * t })
+        }
+      }
+      // trim to length based on score
+      const targetLen = computeTargetLength(myTarget.score)
+      let accum = 0
+      for (let i = 1; i < this.myPath.length; i++) {
+        accum += Math.hypot(this.myPath[i].x - this.myPath[i - 1].x, this.myPath[i].y - this.myPath[i - 1].y)
+        if (accum > targetLen) { this.myPath.length = i; break }
+      }
+      // render circles tail to head
+      const r = computeRadius(myTarget.score)
+      for (let i = this.myPath.length - 1; i >= 0; i--) {
+        const pt = this.myPath[i]
+        const t = 1 - i / Math.max(1, this.myPath.length - 1)
+        const rr = r * (0.5 + 0.5 * t)
+        this.trailGraphics.fillStyle(0xffaa00, 0.8)
+        this.trailGraphics.fillCircle(pt.x, pt.y, rr)
       }
     }
   }
