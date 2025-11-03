@@ -132,6 +132,13 @@ function App() {
           }
           // show a brief banner or change status if needed
           setStatus('disconnected')
+          setRoomId(null)
+          setPlayerId(null)
+          setMinimapPlayers([])
+          setMinimapFoods([])
+          prevSnapshotRef.current = null
+          currSnapshotRef.current = null
+          setBoosting(false)
         } else if (msg.t === 'state') {
           prevSnapshotRef.current = currSnapshotRef.current
           currSnapshotRef.current = msg
