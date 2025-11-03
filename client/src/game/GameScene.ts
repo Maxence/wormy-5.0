@@ -28,6 +28,8 @@ export default class GameScene extends Phaser.Scene {
   private renderDelayMs = 100
   private playerSprites: Map<string, Phaser.GameObjects.Image> = new Map()
   private playerTargets: Map<string, { x: number; y: number; score: number }> = new Map()
+  private playerTrails: Map<string, Vector2[]> = new Map()
+  private playerVelocity: Map<string, { vx: number; vy: number; lastUpdate: number }> = new Map()
   private foodBlitter!: Phaser.GameObjects.Blitter
   private foodBobs: Phaser.GameObjects.Bob[] = []
   private foodPoolSize = 400
@@ -92,6 +94,10 @@ export default class GameScene extends Phaser.Scene {
       const alpha = Phaser.Math.Clamp((targetTime - a.serverNow) / (b.serverNow - a.serverNow), 0, 1)
       const lerpPlayers = b.players.map(bp => {
         const ap = a.players.find(p => p.id === bp.id) || bp
+        const serverDelta = Math.max(1, b.serverNow - a.serverNow)
+        const vx = (bp.position.x - ap.position.x) / serverDelta
+        const vy = (bp.position.y - ap.position.y) / serverDelta
+        this.playerVelocity.set(bp.id, { vx, vy, lastUpdate: b.serverNow })
         return {
           ...bp,
           position: {
@@ -117,7 +123,16 @@ export default class GameScene extends Phaser.Scene {
       sprite.setDepth(isMe ? 10 : 5)
       sprite.setTint(isMe ? 0xff5252 : 0x00aaff)
       sprite.setScale(isMe ? Math.max(r / 6, 1.2) : r / 8)
-      this.playerTargets.set(p.id, { x: p.position.x, y: p.position.y, score: p.score })
+      if (!this.playerTrails.has(p.id)) this.playerTrails.set(p.id, [])
+      let targetX = p.position.x
+      let targetY = p.position.y
+      const vel = this.playerVelocity.get(p.id)
+      if (vel && this.latest) {
+        const extrapolateMs = Math.min(120, Date.now() - this.latest.serverNow + this.renderDelayMs)
+        targetX = p.position.x + vel.vx * extrapolateMs
+        targetY = p.position.y + vel.vy * extrapolateMs
+      }
+      this.playerTargets.set(p.id, { x: targetX, y: targetY, score: p.score })
       playerIds.add(p.id)
     }
     // hide removed players
@@ -125,6 +140,8 @@ export default class GameScene extends Phaser.Scene {
       if (!playerIds.has(id)) {
         spr.destroy()
         this.playerSprites.delete(id)
+        this.playerTrails.delete(id)
+        this.playerVelocity.delete(id)
       }
     }
 
@@ -211,6 +228,45 @@ export default class GameScene extends Phaser.Scene {
       for (let i = 1; i < pathToDraw.length; i++) this.trailGraphics.lineTo(pathToDraw[i].x, pathToDraw[i].y)
       this.trailGraphics.strokePath()
       // Head disk is provided by the red head sprite (kept above by depth)
+    }
+
+    // other players trails
+    for (const [id, t] of this.playerTargets) {
+      if (id === this.playerId) continue
+      const trail = this.playerTrails.get(id) ?? []
+      const sprite = this.playerSprites.get(id)
+      if (!sprite) continue
+      if (trail.length === 0) trail.push({ x: sprite.x, y: sprite.y })
+      const head = { x: sprite.x, y: sprite.y }
+      const last = trail[0]
+      const dx = head.x - last.x
+      const dy = head.y - last.y
+      const dist = Math.hypot(dx, dy)
+      if (dist > 0.1) {
+        const steps = Math.min(2, Math.floor(dist / (this.segmentDist * 0.8)))
+        for (let i = 1; i <= steps; i++) {
+          const mix = i / Math.max(1, steps)
+          trail.unshift({ x: last.x + dx * mix, y: last.y + dy * mix })
+        }
+      }
+      let accumulated = 0
+      const target = computeTargetLength(t.score) * 0.75
+      for (let i = 1; i < trail.length; i++) {
+        accumulated += Math.hypot(trail[i].x - trail[i - 1].x, trail[i].y - trail[i - 1].y)
+        if (accumulated > target) { trail.length = i; break }
+      }
+      if (trail.length > 120) trail.length = 120
+      this.playerTrails.set(id, trail)
+      const baseColor = 0x00aaff
+      const radius = computeRadius(t.score) * 1.2
+      this.trailGraphics.lineStyle(radius, baseColor, 0.28)
+      this.trailGraphics.beginPath()
+      this.trailGraphics.moveTo(head.x, head.y)
+      for (let i = 0; i < trail.length; i += 4) {
+        const node = trail[i]
+        this.trailGraphics.lineTo(node.x, node.y)
+      }
+      this.trailGraphics.strokePath()
     }
   }
 
