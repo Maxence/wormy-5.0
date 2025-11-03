@@ -258,6 +258,34 @@ function trimBodyToLength(points: Vector2[], targetLength: number): void {
 
 function jitter(n: number): number { return (Math.random() - 0.5) * n; }
 
+const MINIMAP_FOOD_CELL_SIZE = 600;
+const MAX_MINIMAP_FOOD_CELLS = 200;
+
+function buildMinimapFoods(foods: Food[]): { x: number; y: number; value: number; count: number }[] {
+  const cells = new Map<string, { cx: number; cy: number; value: number; count: number }>();
+  for (const food of foods) {
+    const cx = Math.floor(food.position.x / MINIMAP_FOOD_CELL_SIZE);
+    const cy = Math.floor(food.position.y / MINIMAP_FOOD_CELL_SIZE);
+    const key = `${cx}:${cy}`;
+    let cell = cells.get(key);
+    if (!cell) {
+      cell = { cx, cy, value: 0, count: 0 };
+      cells.set(key, cell);
+    }
+    cell.value += food.value;
+    cell.count += 1;
+  }
+  return Array.from(cells.values())
+    .map((cell) => ({
+      x: (cell.cx + 0.5) * MINIMAP_FOOD_CELL_SIZE,
+      y: (cell.cy + 0.5) * MINIMAP_FOOD_CELL_SIZE,
+      value: Math.round(cell.value * 10) / 10,
+      count: cell.count,
+    }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, MAX_MINIMAP_FOOD_CELLS);
+}
+
 function normalizeAngle(angle: number): number {
   if (!Number.isFinite(angle)) return 0;
   const twoPi = Math.PI * 2;
@@ -583,6 +611,13 @@ setInterval(() => {
       .sort((a, b) => b.score - a.score)
       .slice(0, 10)
       .map((p) => ({ id: p.id, name: p.name, score: Math.round(p.score) }));
+    const minimapPlayers = Array.from(room.players.values()).map((p) => ({
+      id: p.id,
+      name: p.name,
+      score: Math.round(p.score),
+      position: { x: Math.round(p.position.x), y: Math.round(p.position.y) },
+    }));
+    const minimapFoods = buildMinimapFoods(room.foods);
     for (const recipient of room.players.values()) {
       if (recipient.ws.readyState !== recipient.ws.OPEN) continue;
       // foods near recipient
@@ -618,7 +653,17 @@ setInterval(() => {
         const pt = body[i];
         selfBody.push({ x: Math.round(pt.x), y: Math.round(pt.y) });
       }
-      const payload = JSON.stringify({ t: 'state', roomId: room.id, leaderboard: lb, players: playersPayload, foods: visibleFoods, selfBody, mapSize: room.config.mapSize, serverNow: now });
+      const payload = JSON.stringify({
+        t: 'state',
+        roomId: room.id,
+        leaderboard: lb,
+        players: playersPayload,
+        foods: visibleFoods,
+        selfBody,
+        mapSize: room.config.mapSize,
+        serverNow: now,
+        minimap: { players: minimapPlayers, foods: minimapFoods },
+      });
       try { recipient.ws.send(payload); } catch {}
     }
     room.lastBroadcastAt = now;
