@@ -19,6 +19,7 @@ type WsState = {
   serverNow: number
   minimap?: { players: MinimapPlayer[]; foods: MinimapFoodCell[] }
 }
+type DeathInfo = { score: number; rank: number | null }
 type WsMessage =
   | { t: 'welcome' }
   | { t: 'ping'; pingId: number }
@@ -38,6 +39,7 @@ function App() {
   const [minimapPlayers, setMinimapPlayers] = useState<MinimapPlayer[]>([])
   const [minimapFoods, setMinimapFoods] = useState<MinimapFoodCell[]>([])
   const [mapSize, setMapSize] = useState<number>(5000)
+  const [deathInfo, setDeathInfo] = useState<DeathInfo | null>(null)
   const prevSnapshotRef = useRef<WsState | null>(null)
   const currSnapshotRef = useRef<WsState | null>(null)
   const [boosting, setBoosting] = useState(false)
@@ -111,6 +113,7 @@ function App() {
           setRoomId(msg.roomId)
           setPlayerId(msg.playerId)
           setJoinError(null)
+          setDeathInfo(null)
         } else if ((msg as any).t === 'error') {
           const anyMsg = msg as any
           setJoinError(anyMsg.error || 'JOIN_FAILED')
@@ -130,6 +133,9 @@ function App() {
               })
             }
           }
+          const scoreVal = me ? Math.round(me.score) : 0
+          const rankIndex = snap?.leaderboard?.findIndex?.(p => p.id === playerId) ?? -1
+          setDeathInfo({ score: scoreVal, rank: rankIndex >= 0 ? rankIndex + 1 : null })
           // show a brief banner or change status if needed
           setStatus('disconnected')
           setRoomId(null)
@@ -167,6 +173,14 @@ function App() {
   useEffect(() => {
     statusRef.current = status
   }, [status])
+
+  useEffect(() => {
+    if (!deathInfo || status === 'connected' || roomId) return
+    const timer = setTimeout(() => {
+      if (!roomIdRef.current && statusRef.current !== 'connected') connectAndJoin()
+    }, 2000)
+    return () => clearTimeout(timer)
+  }, [deathInfo, status, roomId])
 
   useEffect(() => {
     const onDown = (e: KeyboardEvent) => { if (e.code === 'Space') setBoosting(true) }
@@ -298,6 +312,18 @@ function App() {
         ctx.fill()
       }
     }
+    const me = minimapPlayers.find(p => p.id === playerId)
+    if (me) {
+      const viewRadiusWorld = 1800
+      const center = toMini(me.position.x, me.position.y)
+      const scale = mini.width / (2 * ms)
+      const viewRadius = Math.max(4, viewRadiusWorld * scale)
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)'
+      ctx.lineWidth = 1
+      ctx.beginPath()
+      ctx.arc(center.x, center.y, viewRadius, 0, Math.PI * 2)
+      ctx.stroke()
+    }
     ctx.strokeStyle = '#444'
     ctx.strokeRect(0.5, 0.5, mini.width - 1, mini.height - 1)
   }, [minimapPlayers, minimapFoods, mapSize, playerId])
@@ -316,7 +342,17 @@ function App() {
         {joinError && <div style={{ color: '#ff7675' }}>Error: {joinError}</div>}
       </div>
       <canvas ref={minimapRef} style={{ position: 'fixed', right: 12, bottom: 12, width: 200, height: 200, border: '1px solid #333' }} />
-      {!roomId && (
+      {deathInfo && !roomId && (
+        <div style={{ position: 'fixed', inset: 0, display: 'grid', placeItems: 'center', pointerEvents: 'none' }}>
+          <div style={{ background: 'rgba(0,0,0,0.72)', color: '#fff', padding: 24, borderRadius: 10, minWidth: 320, pointerEvents: 'auto', textAlign: 'center' }}>
+            <h2 style={{ margin: 0, marginBottom: 10 }}>You were eaten!</h2>
+            <p style={{ margin: '6px 0 14px 0', fontSize: 18 }}>Score: <strong>{deathInfo.score}</strong>{deathInfo.rank ? ` • Rank #${deathInfo.rank}` : ''}</p>
+            <button onClick={() => connectAndJoin()} style={{ padding: '8px 18px', borderRadius: 6, border: 'none', background: '#e74c3c', color: '#fff', cursor: 'pointer' }}>Play again</button>
+            <p style={{ fontSize: 12, opacity: 0.7, marginTop: 12 }}>Respawning in 2 seconds…</p>
+          </div>
+        </div>
+      )}
+      {!roomId && !deathInfo && (
         <div style={{ position: 'fixed', inset: 0, display: 'grid', placeItems: 'center', pointerEvents: 'none' }}>
           <div style={{ background: 'rgba(0,0,0,0.6)', color: '#fff', padding: 20, borderRadius: 8, minWidth: 320, pointerEvents: 'auto' }}>
             <h2 style={{ marginTop: 0 }}>Start a game</h2>
