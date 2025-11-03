@@ -216,6 +216,11 @@ export default class GameScene extends Phaser.Scene {
 
   getPointerWorld(): Vector2 { return this.pointerWorld }
 
+  screenToWorld(screenX: number, screenY: number): Vector2 {
+    const wp = this.cameras.main.getWorldPoint(screenX, screenY)
+    return { x: wp.x, y: wp.y }
+  }
+
   update(_time: number, deltaMs: number): void {
     // ensure we populate targets and visuals every frame from latest snapshot
     this.renderNow()

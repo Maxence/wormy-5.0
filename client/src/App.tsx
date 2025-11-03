@@ -29,6 +29,14 @@ type WsMessage =
   | { t: 'dead' }
   | WsState
 
+const twoPi = Math.PI * 2
+function normalizeAngle(angle: number): number {
+  let a = angle
+  while (a <= -Math.PI) a += twoPi
+  while (a > Math.PI) a -= twoPi
+  return a
+}
+
 function App() {
   const [rttMs, setRttMs] = useState<number | null>(null)
   const [status, setStatus] = useState<'disconnected'|'connecting'|'connected'>('disconnected')
@@ -54,6 +62,8 @@ function App() {
   const particlesRef = useRef<Particle[]>([])
   const roomIdRef = useRef<string | null>(roomId)
   const statusRef = useRef<typeof status>(status)
+  const mousePosRef = useRef<{ x: number; y: number }>({ x: window.innerWidth / 2, y: window.innerHeight / 2 })
+  const lastAngleRef = useRef<number | null>(null)
 
   const wsUrlCandidates = useMemo(() => {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
@@ -114,6 +124,7 @@ function App() {
           setPlayerId(msg.playerId)
           setJoinError(null)
           setDeathInfo(null)
+          lastAngleRef.current = null
         } else if ((msg as any).t === 'error') {
           const anyMsg = msg as any
           setJoinError(anyMsg.error || 'JOIN_FAILED')
@@ -145,6 +156,7 @@ function App() {
           prevSnapshotRef.current = null
           currSnapshotRef.current = null
           setBoosting(false)
+          lastAngleRef.current = null
         } else if (msg.t === 'state') {
           prevSnapshotRef.current = currSnapshotRef.current
           currSnapshotRef.current = msg
@@ -175,6 +187,14 @@ function App() {
   }, [status])
 
   useEffect(() => {
+    const onMove = (ev: MouseEvent) => {
+      mousePosRef.current = { x: ev.clientX, y: ev.clientY }
+    }
+    window.addEventListener('mousemove', onMove)
+    return () => window.removeEventListener('mousemove', onMove)
+  }, [])
+
+  useEffect(() => {
     if (!deathInfo || status === 'connected' || roomId || !playerName.trim()) return
     const timer = setTimeout(() => {
       if (!roomIdRef.current && statusRef.current !== 'connected') connectAndJoin()
@@ -196,16 +216,31 @@ function App() {
   useEffect(() => {
     const id = setInterval(() => {
       if (!wsRef.current || !playerId) return
-      const scene = phaserSceneRef.current
-      const ptr = scene ? ((scene as any).getPointerWorld() as { x: number; y: number }) : null
+      const scene = phaserSceneRef.current as (GameScene & { screenToWorld?: (x: number, y: number) => { x: number; y: number } }) | null
       const snap = currSnapshotRef.current
-      let angle = 0
-      if (ptr && snap) {
+      let targetWorld: { x: number; y: number } | null = null
+      if (scene) {
+        const direct = (scene.getPointerWorld?.() as { x: number; y: number } | undefined) || null
+        if (direct) targetWorld = direct
+        else if (scene.screenToWorld) {
+          const mp = mousePosRef.current
+          targetWorld = scene.screenToWorld(mp.x, mp.y)
+        }
+      }
+      let outAngle = lastAngleRef.current ?? 0
+      if (targetWorld && snap) {
         const me = snap.players.find(p => p.id === playerId)
-        if (me) angle = Math.atan2(ptr.y - me.position.y, ptr.x - me.position.x)
+        if (me) {
+          const raw = Math.atan2(targetWorld.y - me.position.y, targetWorld.x - me.position.x)
+          const prev = lastAngleRef.current ?? raw
+          const delta = normalizeAngle(raw - prev)
+          const smoothed = prev + delta * 0.45
+          lastAngleRef.current = smoothed
+          outAngle = smoothed
+        }
       }
       if (wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ t: 'input', playerId, directionRad: angle, boosting }))
+        wsRef.current.send(JSON.stringify({ t: 'input', playerId, directionRad: outAngle, boosting }))
       }
     }, 33)
     return () => clearInterval(id)
