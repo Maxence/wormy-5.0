@@ -141,6 +141,8 @@ function App() {
           prevSnapshotRef.current = currSnapshotRef.current
           currSnapshotRef.current = msg
           setLeaderboard(msg.leaderboard)
+          setPlayers(msg.players)
+          setFoods(msg.foods)
           setMapSize(msg.mapSize)
           const scene = phaserSceneRef.current
           if (scene) scene.setSnapshot(msg as unknown as SceneWsState, playerId)
