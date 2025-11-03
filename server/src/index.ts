@@ -11,7 +11,12 @@ app.use(express.json());
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'dev-admin';
+const ADMIN_TOKEN_ENV = process.env.ADMIN_TOKEN;
+if (!ADMIN_TOKEN_ENV) {
+  console.error('ADMIN_TOKEN environment variable is required to start the server.');
+  process.exit(1);
+}
+const ADMIN_TOKEN = ADMIN_TOKEN_ENV;
 app.use('/admin', (req, res, next) => {
   const token = req.header('authorization')?.replace('Bearer ', '');
   if (token !== ADMIN_TOKEN) return res.status(401).json({ error: 'Unauthorized' });
