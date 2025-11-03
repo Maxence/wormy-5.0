@@ -73,6 +73,7 @@ type RoomConfig = {
   maxPlayers: number;
   foodCoveragePercent: number; // percentage of map area covered by food mass
   foodSpawnRatePerSecond: number; // target rate
+  emptyRoomTtlSeconds: number; // auto-close timer when no players
 };
 
 type GameRoom = {
@@ -84,6 +85,7 @@ type GameRoom = {
   foods: Food[];
   tickDurationsMs: number[]; // ring buffer
   lastBroadcastAt: number;
+  emptySince: number | null;
 };
 
 type Food = { id: string; position: Vector2; value: number };
@@ -150,13 +152,14 @@ class RoomManager {
       foods: [],
       tickDurationsMs: [],
       lastBroadcastAt: 0,
+      emptySince: Date.now(),
     };
     this.rooms.set(id, room);
     addLog({ ts: Date.now(), type: 'room_open', roomId: id, details: { config: room.config } });
     return room;
   }
 
-  closeRoom(id: string): boolean {
+  closeRoom(id: string, reason: 'manual' | 'timeout_empty' = 'manual'): boolean {
     const room = this.rooms.get(id);
     if (!room) return false;
     room.isClosed = true;
@@ -172,7 +175,7 @@ class RoomManager {
     }
     room.spectators.clear();
     this.rooms.delete(id);
-    addLog({ ts: Date.now(), type: 'room_close', roomId: id });
+    addLog({ ts: Date.now(), type: 'room_close', roomId: id, details: { reason } });
     return true;
   }
 
@@ -189,6 +192,7 @@ let DEFAULT_ROOM_CONFIG: RoomConfig = {
   maxPlayers: 100,
   foodCoveragePercent: 2,
   foodSpawnRatePerSecond: 200,
+  emptyRoomTtlSeconds: 60,
 };
 
 const roomManager = new RoomManager(DEFAULT_ROOM_CONFIG);
@@ -243,10 +247,11 @@ function trimBodyToLength(points: Vector2[], targetLength: number): void {
 function jitter(n: number): number { return (Math.random() - 0.5) * n; }
 
 function normalizeAngle(angle: number): number {
-  let a = angle;
-  while (a <= -Math.PI) a += 2 * Math.PI;
-  while (a > Math.PI) a -= 2 * Math.PI;
-  return a;
+  if (!Number.isFinite(angle)) return 0;
+  const twoPi = Math.PI * 2;
+  const wrapped = angle + Math.PI;
+  const normalized = wrapped - Math.floor(wrapped / twoPi) * twoPi;
+  return normalized - Math.PI;
 }
 
 function rotateTowards(current: number, target: number, maxDelta: number): number {
@@ -292,6 +297,7 @@ wss.on('connection', (ws: WebSocket) => {
           bodyPoints: [{ x: 0, y: 0 }],
         };
         room.players.set(playerId, player);
+        room.emptySince = null;
         meta.roomId = room.id;
         addLog({ ts: Date.now(), type: 'player_join', roomId: room.id, playerId, name });
         ws.send(JSON.stringify({ t: 'joined', roomId: room.id, playerId }));
@@ -312,7 +318,13 @@ wss.on('connection', (ws: WebSocket) => {
           addLog({ ts: Date.now(), type: 'player_input_spoof', roomId: room.id, playerId: msg.playerId });
           return;
         }
-        if (typeof msg.directionRad === 'number') player.targetDirectionRad = msg.directionRad;
+        if (typeof msg.directionRad === 'number') {
+          if (!Number.isFinite(msg.directionRad)) {
+            addLog({ ts: Date.now(), type: 'player_input_invalid', roomId: room.id, playerId: player.id, details: { directionRad: msg.directionRad } });
+            return;
+          }
+          player.targetDirectionRad = normalizeAngle(msg.directionRad);
+        }
         if (typeof msg.boosting === 'boolean') player.boosting = msg.boosting;
         addLog({ ts: Date.now(), type: 'player_input', roomId: room.id, playerId: player.id, details: { directionRad: player.targetDirectionRad, boosting: player.boosting } });
         return;
@@ -346,6 +358,7 @@ wss.on('connection', (ws: WebSocket) => {
         for (const [pid, p] of room.players) {
           if (p.ws === ws) room.players.delete(pid);
         }
+        if (room.players.size === 0) room.emptySince = Date.now();
         addLog({ ts: Date.now(), type: 'player_leave', roomId: meta.roomId, playerId: meta.id });
       }
     }
@@ -393,6 +406,19 @@ setInterval(() => {
   const dt = 1 / TICK_RATE;
   for (const room of roomManager.listRooms()) {
     if (room.isClosed) continue;
+    if (room.players.size === 0) {
+      if (!room.emptySince) room.emptySince = Date.now();
+      const ttlSec = Math.max(0, room.config.emptyRoomTtlSeconds);
+      if (ttlSec > 0 && room.emptySince && Date.now() - room.emptySince >= ttlSec * 1000) {
+        roomManager.closeRoom(room.id, 'timeout_empty');
+        continue;
+      }
+    } else {
+      room.emptySince = null;
+    }
+    if (room.players.size === 0) {
+      continue;
+    }
     const t0 = (globalThis as any).performance?.now ? (globalThis as any).performance.now() : Date.now();
     // Move players (bounded turn rate)
     for (const player of room.players.values()) {
@@ -497,6 +523,7 @@ setInterval(() => {
         }
         try { p.ws.send(JSON.stringify({ t: 'dead' })); } catch {}
         room.players.delete(id);
+        if (room.players.size === 0) room.emptySince = Date.now();
       }
     }
 
@@ -635,8 +662,10 @@ app.get('/admin/rooms', (_req, res) => {
 });
 
 app.post('/admin/rooms', (req, res) => {
-  const cfg = req.body?.config || {};
-  const room = roomManager.createRoom(cfg);
+  const cfgRaw = req.body?.config || {};
+  const parsed = RoomConfigSchema.safeParse(cfgRaw);
+  if (!parsed.success) return res.status(400).json({ error: 'INVALID_CONFIG', details: parsed.error.issues });
+  const room = roomManager.createRoom(parsed.data);
   res.json({ roomId: room.id });
 });
 
@@ -645,6 +674,7 @@ const RoomConfigSchema = z.object({
   maxPlayers: z.number().min(2).max(500).optional(),
   foodCoveragePercent: z.number().min(0).max(50).optional(),
   foodSpawnRatePerSecond: z.number().min(0).max(10000).optional(),
+  emptyRoomTtlSeconds: z.number().min(0).max(3600).optional(),
 });
 
 app.get('/admin/rooms/:id/config', (req, res) => {
