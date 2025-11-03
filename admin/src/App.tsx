@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
 type Snapshot = { t: 'snapshot'; roomId: string; players: { id: string; name: string; score: number; position: { x: number; y: number } }[] }
-type RoomConfig = { mapSize: number; maxPlayers: number; foodCoveragePercent: number; foodSpawnRatePerSecond: number }
+type RoomConfig = { mapSize: number; maxPlayers: number; foodCoveragePercent: number; foodSpawnRatePerSecond: number; emptyRoomTtlSeconds: number }
 
 function useAdminRooms(apiBase: string, token: string | null) {
   const [rooms, setRooms] = useState<{ id: string; players: number; maxPlayers: number; isClosed: boolean }[]>([])
@@ -44,6 +44,7 @@ function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [banName, setBanName] = useState('')
   const [mapSize, setMapSize] = useState<number>(5000)
+  const [defaultConfig, setDefaultConfig] = useState<RoomConfig | null>(null)
   const [roomConfig, setRoomConfig] = useState<RoomConfig | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const [logs, setLogs] = useState<{ ts: number; type: string; roomId?: string; playerId?: string; name?: string; details?: unknown }[]>([])
@@ -53,6 +54,12 @@ function App() {
   const apiBase = useMemo(() => `http://${location.hostname}:4000`, [])
   const { rooms, refetch } = useAdminRooms(apiBase, token)
   const stats = useAdminStats(apiBase, token)
+  const loadDefaultConfig = useCallback(async () => {
+    if (!token) return
+    const res = await fetch(`${apiBase}/admin/config/default`, { headers: { Authorization: `Bearer ${token}` } })
+    const data = await res.json()
+    if (data?.config) setDefaultConfig(data.config)
+  }, [apiBase, token])
 
   const connectWs = () => {
     if (!token) return
@@ -145,6 +152,10 @@ function App() {
     fetchConfig()
   }, [selectedRoom, token, apiBase])
 
+  useEffect(() => {
+    loadDefaultConfig()
+  }, [loadDefaultConfig])
+
   // Draw snapshot on canvas
   useEffect(() => {
     const canvas = canvasRef.current
@@ -226,6 +237,44 @@ function App() {
             <button onClick={banPlayerByName} style={{ marginLeft: 8 }}>Ban</button>
           </div>
         </Card>
+        <Card title="Default config">
+          <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 8, maxWidth: 520 }}>
+            <label>mapSize</label>
+            <input type="number" value={defaultConfig?.mapSize ?? ''} onChange={(e) => {
+              const v = Number(e.target.value); if (!isNaN(v) && defaultConfig) setDefaultConfig({ ...defaultConfig, mapSize: v })
+            }} />
+            <label>maxPlayers</label>
+            <input type="number" value={defaultConfig?.maxPlayers ?? ''} onChange={(e) => {
+              const v = Number(e.target.value); if (!isNaN(v) && defaultConfig) setDefaultConfig({ ...defaultConfig, maxPlayers: v })
+            }} />
+            <label>foodCoveragePercent</label>
+            <input type="number" value={defaultConfig?.foodCoveragePercent ?? ''} onChange={(e) => {
+              const v = Number(e.target.value); if (!isNaN(v) && defaultConfig) setDefaultConfig({ ...defaultConfig, foodCoveragePercent: v })
+            }} />
+            <label>foodSpawnRatePerSecond</label>
+            <input type="number" value={defaultConfig?.foodSpawnRatePerSecond ?? ''} onChange={(e) => {
+              const v = Number(e.target.value); if (!isNaN(v) && defaultConfig) setDefaultConfig({ ...defaultConfig, foodSpawnRatePerSecond: v })
+            }} />
+            <label>emptyRoomTtlSeconds</label>
+            <input type="number" value={defaultConfig?.emptyRoomTtlSeconds ?? ''} onChange={(e) => {
+              const v = Number(e.target.value); if (!isNaN(v) && defaultConfig) setDefaultConfig({ ...defaultConfig, emptyRoomTtlSeconds: v })
+            }} />
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <button onClick={async () => {
+              if (!token || !defaultConfig) return
+              const res = await fetch(`${apiBase}/admin/config/default`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify(defaultConfig)
+              })
+              const data = await res.json()
+              if (data?.config) setDefaultConfig(data.config)
+            }}>Save default</button>
+            <button style={{ marginLeft: 8 }} onClick={() => { loadDefaultConfig() }}>Reload</button>
+          </div>
+          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>Note: set emptyRoomTtlSeconds to 0 to keep empty rooms alive indefinitely.</div>
+        </Card>
         <Card title={`Snapshot ${snapshot?.roomId ? '('+snapshot.roomId.slice(0,8)+')' : ''}`}>
           <div style={{ marginBottom: 8 }}>Map size: {mapSize}</div>
           <canvas ref={canvasRef} width={400} height={300} style={{ border: '1px solid #222', background: '#000', display: 'block', marginBottom: 8, width: '100%', height: 300 }} />
@@ -268,6 +317,10 @@ function App() {
               <input type="number" value={roomConfig?.foodSpawnRatePerSecond ?? ''} onChange={(e) => {
                 const v = Number(e.target.value); if (!isNaN(v) && roomConfig) setRoomConfig({ ...roomConfig, foodSpawnRatePerSecond: v })
               }} />
+              <label>emptyRoomTtlSeconds</label>
+              <input type="number" value={roomConfig?.emptyRoomTtlSeconds ?? ''} onChange={(e) => {
+                const v = Number(e.target.value); if (!isNaN(v) && roomConfig) setRoomConfig({ ...roomConfig, emptyRoomTtlSeconds: v })
+              }} />
             </div>
             <div style={{ marginTop: 8 }}>
               <button onClick={async () => {
@@ -293,6 +346,7 @@ function App() {
                 }
               }}>Reload</button>
             </div>
+            <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>Note: 0 disables the empty-room auto close.</div>
           </Card>
         )}
       </Grid>
