@@ -48,6 +48,8 @@ function App() {
   const playerHistories = useRef<Map<string, Vector2[]>>(new Map())
   type Particle = { x: number; y: number; vx: number; vy: number; life: number; maxLife: number; size: number; color: string }
   const particlesRef = useRef<Particle[]>([])
+  const roomIdRef = useRef<string | null>(roomId)
+  const statusRef = useRef<typeof status>(status)
 
   const radiusFromScore = (score: number) => Math.max(4, 6 + Math.sqrt(Math.max(0, score)) * 0.3)
   const hashHue = (id: string) => {
@@ -83,13 +85,14 @@ function App() {
       ws.send(JSON.stringify({ t: 'hello', name: playerName }))
     }
     ws.onclose = () => {
+      const shouldRetry = !roomIdRef.current
       setStatus('disconnected')
       // rotate url for next connect attempt
       urlIndexRef.current = (urlIndexRef.current + 1) % wsUrlCandidates.length
       // auto-retry after short delay if not joined
-      if (!roomId) {
+      if (shouldRetry) {
         setTimeout(() => {
-          if (wsRef.current === ws && status !== 'connected') connectAndJoin()
+          if (wsRef.current === ws && statusRef.current !== 'connected' && !roomIdRef.current) connectAndJoin()
         }, 1500)
       }
     }
@@ -152,6 +155,14 @@ function App() {
       try { wsRef.current?.close() } catch {}
     }
   }, [])
+
+  useEffect(() => {
+    roomIdRef.current = roomId
+  }, [roomId])
+
+  useEffect(() => {
+    statusRef.current = status
+  }, [status])
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => { mousePos.current = { x: e.clientX, y: e.clientY } }
