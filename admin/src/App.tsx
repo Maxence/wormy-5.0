@@ -38,7 +38,7 @@ function useAdminStats(apiBase: string, token: string | null) {
 }
 
 function App() {
-  const [token, setToken] = useState('dev-admin')
+  const [token, setToken] = useState('')
   const [connected, setConnected] = useState(false)
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null)
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
