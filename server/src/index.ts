@@ -286,6 +286,40 @@ function buildMinimapFoods(foods: Food[]): { x: number; y: number; value: number
     .slice(0, MAX_MINIMAP_FOOD_CELLS);
 }
 
+const SPAWN_PADDING = 200;
+const SPAWN_ATTEMPTS = 20;
+const MIN_SPAWN_DISTANCE = 900;
+
+function pickSpawnPosition(room: GameRoom): Vector2 {
+  if (room.players.size === 0) {
+    const range = room.config.mapSize - SPAWN_PADDING;
+    return {
+      x: (Math.random() * 2 - 1) * range,
+      y: (Math.random() * 2 - 1) * range,
+    };
+  }
+  const range = room.config.mapSize - SPAWN_PADDING;
+  let bestPos: Vector2 | null = null;
+  let bestScore = -Infinity;
+  for (let attempt = 0; attempt < SPAWN_ATTEMPTS; attempt++) {
+    const pos = {
+      x: (Math.random() * 2 - 1) * range,
+      y: (Math.random() * 2 - 1) * range,
+    };
+    let minDist2 = Number.POSITIVE_INFINITY;
+    for (const other of room.players.values()) {
+      const d2 = distanceSquared(pos, other.position);
+      if (d2 < minDist2) minDist2 = d2;
+    }
+    if (minDist2 >= MIN_SPAWN_DISTANCE * MIN_SPAWN_DISTANCE) return pos;
+    if (minDist2 > bestScore) {
+      bestScore = minDist2;
+      bestPos = pos;
+    }
+  }
+  return bestPos ?? { x: (Math.random() * 2 - 1) * range, y: (Math.random() * 2 - 1) * range };
+}
+
 function normalizeAngle(angle: number): number {
   if (!Number.isFinite(angle)) return 0;
   const twoPi = Math.PI * 2;
@@ -325,16 +359,18 @@ wss.on('connection', (ws: WebSocket) => {
         if (meta.roomId) return;
         const room = roomManager.findRoomWithSlot();
         const playerId = uuidv4();
+        const spawnPos = pickSpawnPosition(room);
+        const spawnDir = Math.random() * Math.PI * 2;
         const player: Player = {
           id: playerId,
           name,
           score: 10,
-          position: { x: 0, y: 0 },
-          directionRad: 0,
-          targetDirectionRad: 0,
+          position: { x: spawnPos.x, y: spawnPos.y },
+          directionRad: spawnDir,
+          targetDirectionRad: spawnDir,
           boosting: false,
           ws,
-          bodyPoints: [{ x: 0, y: 0 }],
+          bodyPoints: [{ x: spawnPos.x, y: spawnPos.y }],
         };
         room.players.set(playerId, player);
         room.emptySince = null;
@@ -563,6 +599,11 @@ setInterval(() => {
         }
         try { p.ws.send(JSON.stringify({ t: 'dead' })); } catch {}
         room.players.delete(id);
+        const playerMeta = wsToMeta.get(p.ws);
+        if (playerMeta) {
+          playerMeta.roomId = null;
+          playerMeta.lastInputAt = null;
+        }
         if (room.players.size === 0) room.emptySince = Date.now();
       }
     }
@@ -790,6 +831,8 @@ app.post('/admin/rooms/:id/kick', (req, res) => {
   if (!player) return res.status(404).json({ error: 'PLAYER_NOT_FOUND' });
   try { player.ws.close(4000, 'kicked'); } catch {}
   room.players.delete(playerId);
+  const meta = wsToMeta.get(player.ws);
+  if (meta) meta.roomId = null;
   addLog({ ts: Date.now(), type: 'admin_kick', roomId: room.id, playerId });
   res.json({ ok: true });
 });
@@ -806,6 +849,8 @@ app.post('/admin/ban', (req, res) => {
       if (p.name.toLowerCase() === name.toLowerCase()) {
         try { p.ws.close(4001, 'banned'); } catch {}
         room.players.delete(id);
+        const m = wsToMeta.get(p.ws);
+        if (m) m.roomId = null;
         addLog({ ts: Date.now(), type: 'admin_ban_disconnect', roomId: room.id, playerId: id, name: p.name });
       }
     }
