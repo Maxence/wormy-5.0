@@ -175,12 +175,12 @@ function App() {
   }, [status])
 
   useEffect(() => {
-    if (!deathInfo || status === 'connected' || roomId) return
+    if (!deathInfo || status === 'connected' || roomId || !playerName.trim()) return
     const timer = setTimeout(() => {
       if (!roomIdRef.current && statusRef.current !== 'connected') connectAndJoin()
     }, 2000)
     return () => clearTimeout(timer)
-  }, [deathInfo, status, roomId])
+  }, [deathInfo, status, roomId, playerName])
 
   useEffect(() => {
     const onDown = (e: KeyboardEvent) => { if (e.code === 'Space') setBoosting(true) }
@@ -328,49 +328,146 @@ function App() {
     ctx.strokeRect(0.5, 0.5, mini.width - 1, mini.height - 1)
   }, [minimapPlayers, minimapFoods, mapSize, playerId])
 
+  const statusTone = status === 'connected' ? 'success' : status === 'connecting' ? 'warning' : 'danger'
+  const statusText = status === 'connected' ? 'Connected' : status === 'connecting' ? 'Connecting…' : 'Disconnected'
+  const pingText = rttMs != null ? `${rttMs} ms` : '—'
+  const fpsText = fps != null ? `${fps}` : '—'
+  const shortRoomId = roomId ? roomId.slice(0, 8) : '—'
+  const shortPlayerId = playerId ? playerId.slice(0, 8) : '—'
+  const leaderboardTop = leaderboard.slice(0, 8)
+  const wsDisplayHost = `${location.hostname || 'localhost'}:4000`
+
   return (
-    <>
-      <div ref={phaserContainerRef} style={{ position: 'fixed', inset: 0 }} />
-      <div style={{ position: 'fixed', top: 8, right: 8, background: 'rgba(0,0,0,0.6)', padding: 10, color: '#fff', borderRadius: 8, minWidth: 240 }}>
-        <div>Player: <input value={playerName} onChange={(e) => setPlayerName(e.target.value)} /></div>
-        <div>Room: {roomId ?? '—'}</div>
-        <div>Player ID: {playerId ?? '—'}</div>
-        <div>Boost: hold Space</div>
-        <div>Status: {status}</div>
-        <div>RTT: {rttMs ?? '—'} ms</div>
-        <div>FPS: {fps ?? '—'}</div>
-        {joinError && <div style={{ color: '#ff7675' }}>Error: {joinError}</div>}
+    <div className="game-shell">
+      <div ref={phaserContainerRef} className="game-canvas" />
+
+      <div className="hud-panel hud-panel--leaderboard">
+        <div className="hud-header">
+          <span className="hud-kicker">Leaderboard</span>
+          <span className="hud-title">Top snakes</span>
+        </div>
+        <ol className="leaderboard">
+          {leaderboardTop.length === 0 ? (
+            <li className="leaderboard-item leaderboard-item--empty">Waiting for players…</li>
+          ) : (
+            leaderboardTop.map((entry, index) => (
+              <li
+                key={entry.id}
+                className={`leaderboard-item ${entry.id === playerId ? 'leaderboard-item--me' : ''}`}
+              >
+                <span className="leaderboard-rank">{index + 1}</span>
+                <span className="leaderboard-name">{entry.name || 'Anon'}</span>
+                <span className="leaderboard-score">{entry.score}</span>
+              </li>
+            ))
+          )}
+        </ol>
       </div>
-      <canvas ref={minimapRef} style={{ position: 'fixed', right: 12, bottom: 12, width: 200, height: 200, border: '1px solid #333' }} />
+
+      <div className="hud-panel hud-panel--session">
+        <div className="hud-header">
+          <span className="hud-kicker">Session</span>
+          <span className="hud-title">Control center</span>
+        </div>
+        <label className="field">
+          <span className="field-label">Nickname</span>
+          <input className="input" value={playerName} onChange={(e) => setPlayerName(e.target.value)} maxLength={20} />
+        </label>
+        <div className="stat-grid">
+          <div className="stat">
+            <span className="stat-label">Status</span>
+            <span className={`status-pill status-pill--${statusTone}`}>{statusText}</span>
+          </div>
+          <div className="stat">
+            <span className="stat-label">Ping</span>
+            <span className="stat-value">{pingText}</span>
+          </div>
+          <div className="stat">
+            <span className="stat-label">Room</span>
+            <span className="stat-value">{shortRoomId}</span>
+          </div>
+          <div className="stat">
+            <span className="stat-label">Player ID</span>
+            <span className="stat-value">{shortPlayerId}</span>
+          </div>
+          <div className="stat">
+            <span className="stat-label">FPS</span>
+            <span className="stat-value">{fpsText}</span>
+          </div>
+          <div className="stat">
+            <span className="stat-label">Boost</span>
+            <span className="stat-value">Hold SPACE</span>
+          </div>
+        </div>
+        {joinError && <div className="notice notice--error">Error: {joinError}</div>}
+        <div className="hud-footer">
+          <span className="hud-tip">Auto-respawn after defeat • WS endpoint ws://{wsDisplayHost}/ws</span>
+        </div>
+      </div>
+
+      <div className="minimap-card">
+        <canvas ref={minimapRef} className="minimap-canvas" />
+        <div className="minimap-footer">
+          <span>Radar</span>
+          <span className="minimap-scale">Map ±{mapSize}</span>
+        </div>
+      </div>
+
       {deathInfo && !roomId && (
-        <div style={{ position: 'fixed', inset: 0, display: 'grid', placeItems: 'center', pointerEvents: 'none' }}>
-          <div style={{ background: 'rgba(0,0,0,0.72)', color: '#fff', padding: 24, borderRadius: 10, minWidth: 320, pointerEvents: 'auto', textAlign: 'center' }}>
-            <h2 style={{ margin: 0, marginBottom: 10 }}>You were eaten!</h2>
-            <p style={{ margin: '6px 0 14px 0', fontSize: 18 }}>Score: <strong>{deathInfo.score}</strong>{deathInfo.rank ? ` • Rank #${deathInfo.rank}` : ''}</p>
-            <button onClick={() => connectAndJoin()} style={{ padding: '8px 18px', borderRadius: 6, border: 'none', background: '#e74c3c', color: '#fff', cursor: 'pointer' }}>Play again</button>
-            <p style={{ fontSize: 12, opacity: 0.7, marginTop: 12 }}>Respawning in 2 seconds…</p>
+        <div className="overlay overlay--death">
+          <div className="overlay-card">
+            <span className="overlay-kicker">Game over</span>
+            <h2 className="overlay-title">You were eaten!</h2>
+            <p className="overlay-highlight">
+              <strong>{deathInfo.score}</strong> points {deathInfo.rank ? `• Rank #${deathInfo.rank}` : null}
+            </p>
+            <div className="overlay-actions">
+              <button className="btn btn-primary" onClick={() => connectAndJoin()}>
+                Play again
+              </button>
+              <button className="btn btn-ghost" onClick={() => setDeathInfo(null)}>
+                Change name
+              </button>
+            </div>
+            <p className="overlay-tip">Auto respawn in 2 seconds…</p>
           </div>
         </div>
       )}
+
       {!roomId && !deathInfo && (
-        <div style={{ position: 'fixed', inset: 0, display: 'grid', placeItems: 'center', pointerEvents: 'none' }}>
-          <div style={{ background: 'rgba(0,0,0,0.6)', color: '#fff', padding: 20, borderRadius: 8, minWidth: 320, pointerEvents: 'auto' }}>
-            <h2 style={{ marginTop: 0 }}>Start a game</h2>
-            <div style={{ display: 'grid', gap: 10 }}>
-              <label>
-                Name
-                <input style={{ width: '100%' }} value={playerName} onChange={(e) => setPlayerName(e.target.value)} />
-              </label>
-              {joinError && <div style={{ color: '#ff7675' }}>Error: {joinError}</div>}
-              <button onClick={() => { connectAndJoin() }} disabled={status === 'connecting'}>
-                Play
-        </button>
-              <div style={{ opacity: 0.8, fontSize: 12 }}>Status: {status} • Server ws://{location.hostname}:4000/ws</div>
+        <div className="overlay overlay--start">
+          <div className="overlay-card">
+            <span className="overlay-kicker">Wormy 5.0</span>
+            <h1 className="overlay-title">Slither to the top</h1>
+            <p className="overlay-sub">Pick a nickname and jump into the arena. Boost with SPACE to outmaneuver rivals.</p>
+            <label className="field">
+              <span className="field-label">Nickname</span>
+              <input
+                className="input input--large"
+                placeholder="Enter your name"
+                value={playerName}
+                onChange={(e) => setPlayerName(e.target.value)}
+                maxLength={20}
+              />
+            </label>
+            {joinError && <div className="notice notice--error">Error: {joinError}</div>}
+            <div className="overlay-actions">
+              <button className="btn btn-primary" onClick={() => connectAndJoin()} disabled={status === 'connecting'}>
+                {status === 'connecting' ? 'Connecting…' : 'Play now'}
+              </button>
+              <button
+                className="btn btn-ghost"
+                type="button"
+                onClick={() => setPlayerName(`Guest${Math.floor(Math.random() * 900 + 100)}`)}
+              >
+                Random name
+              </button>
             </div>
+            <p className="overlay-tip">Server: ws://{wsDisplayHost}/ws</p>
           </div>
-      </div>
+        </div>
       )}
-    </>
+    </div>
   )
 }
 
