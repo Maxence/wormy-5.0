@@ -30,7 +30,17 @@ app.get('/admin/stats', (_req, res) => {
     const broadcastHz = r.lastBroadcastAt ? Math.min(5, 1000 / Math.max(1, Date.now() - r.lastBroadcastAt)) : 0
     return { id: r.id, players: r.players.size, maxPlayers: r.config.maxPlayers, isClosed: r.isClosed, p95TickMs: Number(p95.toFixed(2)), broadcastHz: Number(broadcastHz.toFixed(2)) };
   });
-  const totals = { players: rooms.reduce((a, r) => a + r.players, 0), rooms: rooms.length, memMB: Math.round(process.memoryUsage().heapUsed/1e6) };
+  const totals = {
+    players: rooms.reduce((a, r) => a + r.players, 0),
+    rooms: rooms.length,
+    memMB: Math.round(process.memoryUsage().heapUsed / 1e6),
+    metrics: {
+      inputSpoofRejected: metrics.inputSpoofRejected,
+      inputInvalid: metrics.inputInvalid,
+      inputThrottled: metrics.inputThrottled,
+      roomsClosedTimeout: metrics.roomsClosedTimeout,
+    },
+  };
   res.json({ rooms, totals, uptimeSec: Math.round(process.uptime()) });
 });
 
@@ -91,6 +101,8 @@ type GameRoom = {
   tickDurationsMs: number[]; // ring buffer
   lastBroadcastAt: number;
   emptySince: number | null;
+  minimapSnapshot: { players: { id: string; name: string; score: number; position: { x: number; y: number } }[]; foods: { x: number; y: number; value: number; count: number }[] } | null;
+  minimapSnapshotAt: number;
 };
 
 type Food = { id: string; position: Vector2; value: number };
@@ -104,6 +116,8 @@ type ClientMeta = {
   lastPongAt: number | null;
   lastInputAt: number | null;
   lastMessageAt: number | null;
+  inputAllowance: number;
+  inputRefillAt: number;
 };
 
 type AdminSpectatorMeta = {
@@ -161,6 +175,8 @@ class RoomManager {
       tickDurationsMs: [],
       lastBroadcastAt: 0,
       emptySince: Date.now(),
+      minimapSnapshot: null,
+      minimapSnapshotAt: 0,
     };
     this.rooms.set(id, room);
     addLog({ ts: Date.now(), type: 'room_open', roomId: id, details: { config: room.config } });
@@ -211,6 +227,12 @@ const roomManager = new RoomManager(DEFAULT_ROOM_CONFIG);
 const wsToMeta = new WeakMap<WebSocket, ClientMeta>();
 const adminWsToMeta = new WeakMap<WebSocket, AdminSpectatorMeta>();
 const bannedNames = new Set<string>();
+const metrics = {
+  inputSpoofRejected: 0,
+  inputInvalid: 0,
+  inputThrottled: 0,
+  roomsClosedTimeout: 0,
+};
 
 // --- Helpers ---
 function distanceSquared(a: Vector2, b: Vector2): number {
@@ -260,6 +282,9 @@ function jitter(n: number): number { return (Math.random() - 0.5) * n; }
 
 const MINIMAP_FOOD_CELL_SIZE = 600;
 const MAX_MINIMAP_FOOD_CELLS = 200;
+const MINIMAP_REFRESH_MS = 500;
+const INPUTS_PER_SECOND = 30;
+const INPUT_BUCKET_CAPACITY = 45;
 
 function buildMinimapFoods(foods: Food[]): { x: number; y: number; value: number; count: number }[] {
   const cells = new Map<string, { cx: number; cy: number; value: number; count: number }>();
@@ -344,6 +369,8 @@ wss.on('connection', (ws: WebSocket) => {
     lastPongAt: null,
     lastInputAt: null,
     lastMessageAt: Date.now(),
+    inputAllowance: INPUT_BUCKET_CAPACITY,
+    inputRefillAt: Date.now(),
   });
   ws.send(JSON.stringify({ t: 'welcome' }));
   ws.on('message', (data) => {
@@ -384,18 +411,32 @@ wss.on('connection', (ws: WebSocket) => {
       if (msg?.t === 'input') {
         const meta = wsToMeta.get(ws);
         if (!meta?.roomId) return;
-        meta.lastInputAt = Date.now();
         const room = roomManager.getRoom(meta.roomId);
         if (!room) return;
         if (typeof msg.playerId !== 'string') return;
         const player = room.players.get(msg.playerId);
         if (!player) return;
         if (player.ws !== ws) {
+          metrics.inputSpoofRejected += 1;
           addLog({ ts: Date.now(), type: 'player_input_spoof', roomId: room.id, playerId: msg.playerId });
           return;
         }
+        const now = Date.now();
+        const elapsedSec = (now - meta.inputRefillAt) / 1000;
+        if (elapsedSec > 0) {
+          meta.inputAllowance = Math.min(INPUT_BUCKET_CAPACITY, meta.inputAllowance + elapsedSec * INPUTS_PER_SECOND);
+          meta.inputRefillAt = now;
+        }
+        if (meta.inputAllowance < 1) {
+          metrics.inputThrottled += 1;
+          addLog({ ts: Date.now(), type: 'player_input_throttled', roomId: room.id, playerId: player.id });
+          return;
+        }
+        meta.inputAllowance -= 1;
+        meta.lastInputAt = now;
         if (typeof msg.directionRad === 'number') {
           if (!Number.isFinite(msg.directionRad)) {
+            metrics.inputInvalid += 1;
             addLog({ ts: Date.now(), type: 'player_input_invalid', roomId: room.id, playerId: player.id, details: { directionRad: msg.directionRad } });
             return;
           }
@@ -486,6 +527,7 @@ setInterval(() => {
       if (!room.emptySince) room.emptySince = Date.now();
       const ttlSec = Math.max(0, room.config.emptyRoomTtlSeconds);
       if (ttlSec > 0 && room.emptySince && Date.now() - room.emptySince >= ttlSec * 1000) {
+        metrics.roomsClosedTimeout += 1;
         roomManager.closeRoom(room.id, 'timeout_empty');
         continue;
       }
@@ -652,13 +694,18 @@ setInterval(() => {
       .sort((a, b) => b.score - a.score)
       .slice(0, 10)
       .map((p) => ({ id: p.id, name: p.name, score: Math.round(p.score) }));
-    const minimapPlayers = Array.from(room.players.values()).map((p) => ({
-      id: p.id,
-      name: p.name,
-      score: Math.round(p.score),
-      position: { x: Math.round(p.position.x), y: Math.round(p.position.y) },
-    }));
-    const minimapFoods = buildMinimapFoods(room.foods);
+    if (!room.minimapSnapshot || now - room.minimapSnapshotAt >= MINIMAP_REFRESH_MS) {
+      const minimapPlayers = Array.from(room.players.values()).map((p) => ({
+        id: p.id,
+        name: p.name,
+        score: Math.round(p.score),
+        position: { x: Math.round(p.position.x), y: Math.round(p.position.y) },
+      }));
+      const minimapFoods = buildMinimapFoods(room.foods);
+      room.minimapSnapshot = { players: minimapPlayers, foods: minimapFoods };
+      room.minimapSnapshotAt = now;
+    }
+    const minimapSnapshot = room.minimapSnapshot ?? { players: [], foods: [] };
     for (const recipient of room.players.values()) {
       if (recipient.ws.readyState !== recipient.ws.OPEN) continue;
       // foods near recipient
@@ -703,7 +750,7 @@ setInterval(() => {
         selfBody,
         mapSize: room.config.mapSize,
         serverNow: now,
-        minimap: { players: minimapPlayers, foods: minimapFoods },
+        minimap: minimapSnapshot,
       });
       try { recipient.ws.send(payload); } catch {}
     }
