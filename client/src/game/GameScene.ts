@@ -38,10 +38,11 @@ export default class GameScene extends Phaser.Scene {
   private grid!: Phaser.GameObjects.Graphics
   private trailGraphics!: Phaser.GameObjects.Graphics
   private smoothingLambda = 28 // stronger smoothing for high Hz updates
-
+  
   // local snake reconstruction (for the local player only)
   private myPath: Vector2[] = []
   private segmentDist = 10
+  private serverSelfBody: Vector2[] | null = null
 
   constructor() {
     super(GameScene.KEY)
@@ -80,6 +81,7 @@ export default class GameScene extends Phaser.Scene {
     this.previous = this.latest
     this.latest = s
     this.playerId = playerId
+    this.serverSelfBody = s.selfBody ? s.selfBody.slice().reverse().map(pt => ({ x: pt.x, y: pt.y })) : null
     // no immediate render; update() will interpolate at t - renderDelay
   }
 
@@ -187,6 +189,9 @@ export default class GameScene extends Phaser.Scene {
     // draw local snake body as a single stroked path (fast and smooth)
     this.trailGraphics.clear()
     const myTarget = this.playerTargets.get(this.playerId || '')
+    if (this.serverSelfBody && this.serverSelfBody.length > 0) {
+      this.myPath = this.serverSelfBody.slice()
+    }
     if (myTarget) {
       // Use the smoothed sprite head position to avoid trail getting ahead of the head
       const spr = this.playerSprites.get(this.playerId || '')

@@ -674,7 +674,14 @@ setInterval(() => {
       if (near < 80) {
         const need = 80 - near
         for (let i = 0; i < need; i++) {
-          room.foods.push({ id: uuidv4(), position: { x: p.position.x + jitter(600), y: p.position.y + jitter(600) }, value: 1 })
+          const angle = Math.random() * Math.PI * 2
+          const dist = 900 + Math.random() * 600
+          const clamp = (v: number) => Math.max(-room.config.mapSize, Math.min(room.config.mapSize, v))
+          const pos = {
+            x: clamp(p.position.x + Math.cos(angle) * dist + jitter(40)),
+            y: clamp(p.position.y + Math.sin(angle) * dist + jitter(40)),
+          }
+          room.foods.push({ id: uuidv4(), position: pos, value: 1 })
         }
       }
     }
