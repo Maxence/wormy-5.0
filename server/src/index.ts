@@ -305,8 +305,13 @@ wss.on('connection', (ws: WebSocket) => {
         meta.lastInputAt = Date.now();
         const room = roomManager.getRoom(meta.roomId);
         if (!room) return;
+        if (typeof msg.playerId !== 'string') return;
         const player = room.players.get(msg.playerId);
         if (!player) return;
+        if (player.ws !== ws) {
+          addLog({ ts: Date.now(), type: 'player_input_spoof', roomId: room.id, playerId: msg.playerId });
+          return;
+        }
         if (typeof msg.directionRad === 'number') player.targetDirectionRad = msg.directionRad;
         if (typeof msg.boosting === 'boolean') player.boosting = msg.boosting;
         addLog({ ts: Date.now(), type: 'player_input', roomId: room.id, playerId: player.id, details: { directionRad: player.targetDirectionRad, boosting: player.boosting } });
