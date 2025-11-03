@@ -135,8 +135,11 @@ function addLog(entry: AdminLogEntry) {
 // --- Managers ---
 class RoomManager {
   private rooms: Map<string, GameRoom> = new Map();
+  private defaultConfig: RoomConfig;
 
-  constructor(private defaultConfig: RoomConfig) {}
+  constructor(defaultConfig: RoomConfig) {
+    this.defaultConfig = { ...defaultConfig };
+  }
 
   listRooms() {
     return Array.from(this.rooms.values());
@@ -189,6 +192,10 @@ class RoomManager {
       if (!room.isClosed && room.players.size < room.config.maxPlayers) return room;
     }
     return this.createRoom();
+  }
+
+  setDefaultConfig(config: RoomConfig) {
+    this.defaultConfig = { ...config };
   }
 }
 
@@ -706,6 +713,7 @@ app.patch('/admin/config/default', (req, res) => {
   const parse = RoomConfigSchema.safeParse(req.body || {});
   if (!parse.success) return res.status(400).json({ error: 'INVALID_CONFIG', details: parse.error.issues });
   DEFAULT_ROOM_CONFIG = { ...DEFAULT_ROOM_CONFIG, ...parse.data };
+  roomManager.setDefaultConfig(DEFAULT_ROOM_CONFIG);
   res.json({ config: DEFAULT_ROOM_CONFIG });
 });
 
