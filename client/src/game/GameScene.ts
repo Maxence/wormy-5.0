@@ -3,7 +3,9 @@ import Phaser from 'phaser'
 export type Vector2 = { x: number; y: number }
 export type PlayerState = { id: string; name: string; score: number; position: Vector2 }
 export type FoodState = { id: string; position: Vector2; value: number }
-export type WsState = { t: 'state'; roomId: string; leaderboard: { id: string; name: string; score: number }[]; players: PlayerState[]; foods: FoodState[]; selfBody?: Vector2[]; mapSize: number; serverNow: number }
+export type MinimapFoodCell = { x: number; y: number; value: number; count: number }
+export type MinimapData = { players: PlayerState[]; foods: MinimapFoodCell[] }
+export type WsState = { t: 'state'; roomId: string; leaderboard: { id: string; name: string; score: number }[]; players: PlayerState[]; foods: FoodState[]; selfBody?: Vector2[]; mapSize: number; serverNow: number; minimap?: MinimapData }
 
 function computeZoom(score: number): number {
   const z = 1 / (1 + Math.sqrt(Math.max(0, score)) * 0.03)
@@ -24,7 +26,6 @@ export default class GameScene extends Phaser.Scene {
   private latest: WsState | null = null
   private previous: WsState | null = null
   private renderDelayMs = 100
-  private lastRenderTime = 0
   private playerSprites: Map<string, Phaser.GameObjects.Image> = new Map()
   private playerTargets: Map<string, { x: number; y: number; score: number }> = new Map()
   private foodBlitter!: Phaser.GameObjects.Blitter
@@ -46,7 +47,7 @@ export default class GameScene extends Phaser.Scene {
 
   preload() {
     // generate a simple circle texture to reuse
-    const g = this.make.graphics({ x: 0, y: 0, add: false })
+    const g = this.add.graphics({ x: 0, y: 0 })
     g.fillStyle(0xffffff, 1)
     g.fillCircle(6, 6, 6)
     g.generateTexture(this.dotTextureKey, 12, 12)
@@ -59,13 +60,14 @@ export default class GameScene extends Phaser.Scene {
     this.foodBlitter.setDepth(2)
     for (let i = 0; i < this.foodPoolSize; i++) {
       const bob = this.foodBlitter.create(0, 0)
-      // @ts-expect-error - bob.visible exists
-      ;(bob as any).visible = false
+      ;(bob as Phaser.GameObjects.Bob & { visible?: boolean }).visible = false
       this.foodBobs.push(bob)
     }
     this.cameras.main.setBackgroundColor('#0a0a0a')
-    this.grid = this.add.graphics({ depth: 1 })
-    this.trailGraphics = this.add.graphics({ depth: 4 })
+    this.grid = this.add.graphics()
+    this.grid.setDepth(1)
+    this.trailGraphics = this.add.graphics()
+    this.trailGraphics.setDepth(4)
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
       const wp = this.cameras.main.getWorldPoint(p.x, p.y)
       this.pointerWorld = { x: wp.x, y: wp.y }
@@ -81,8 +83,6 @@ export default class GameScene extends Phaser.Scene {
 
   private renderNow() {
     if (!this.latest) return
-    const now = performance.now()
-    this.lastRenderTime = now
     // choose interpolated snapshot between previous and latest
     let s = this.latest
     if (this.previous && this.latest.serverNow > this.previous.serverNow) {
@@ -139,13 +139,11 @@ export default class GameScene extends Phaser.Scene {
       if (!view.contains(f.position.x, f.position.y)) continue
       const bob = this.foodBobs[idx++]
       bob.x = f.position.x; bob.y = f.position.y
-      // @ts-expect-error
-      ;(bob as any).visible = true
+      ;(bob as Phaser.GameObjects.Bob & { visible?: boolean }).visible = true
     }
     // hide rest
     for (; idx < this.foodBobs.length; idx++) {
-      // @ts-expect-error
-      ;(this.foodBobs[idx] as any).visible = false
+      ;(this.foodBobs[idx] as Phaser.GameObjects.Bob & { visible?: boolean }).visible = false
     }
 
     // grid
@@ -218,7 +216,7 @@ export default class GameScene extends Phaser.Scene {
 
   getPointerWorld(): Vector2 { return this.pointerWorld }
 
-  update(time: number, deltaMs: number): void {
+  update(_time: number, deltaMs: number): void {
     // ensure we populate targets and visuals every frame from latest snapshot
     this.renderNow()
     const dt = Math.max(0.001, deltaMs / 1000)
@@ -236,5 +234,3 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 }
-
-

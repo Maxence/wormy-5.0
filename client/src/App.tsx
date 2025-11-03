@@ -7,7 +7,18 @@ import type { WsState as SceneWsState } from './game/GameScene'
 type Vector2 = { x: number; y: number }
 type PlayerState = { id: string; name: string; score: number; position: Vector2 }
 type FoodState = { id: string; position: Vector2; value: number }
-type WsState = { t: 'state'; roomId: string; leaderboard: { id: string; name: string; score: number }[]; players: PlayerState[]; foods: FoodState[]; mapSize: number; serverNow: number }
+type MinimapPlayer = { id: string; name: string; score: number; position: Vector2 }
+type MinimapFoodCell = { x: number; y: number; value: number; count: number }
+type WsState = {
+  t: 'state'
+  roomId: string
+  leaderboard: { id: string; name: string; score: number }[]
+  players: PlayerState[]
+  foods: FoodState[]
+  mapSize: number
+  serverNow: number
+  minimap?: { players: MinimapPlayer[]; foods: MinimapFoodCell[] }
+}
 type WsMessage =
   | { t: 'welcome' }
   | { t: 'ping'; pingId: number }
@@ -16,12 +27,6 @@ type WsMessage =
   | { t: 'joined'; roomId: string; playerId: string }
   | { t: 'dead' }
   | WsState
-  | { t: string; [k: string]: unknown }
-
-function computeZoom(score: number): number {
-  const z = 1 / (1 + Math.sqrt(Math.max(0, score)) * 0.03)
-  return Math.min(1, Math.max(0.3, z))
-}
 
 function App() {
   const [rttMs, setRttMs] = useState<number | null>(null)
@@ -30,8 +35,8 @@ function App() {
   const [roomId, setRoomId] = useState<string | null>(null)
   const [playerId, setPlayerId] = useState<string | null>(null)
   const [leaderboard, setLeaderboard] = useState<{ id: string; name: string; score: number }[]>([])
-  const [players, setPlayers] = useState<PlayerState[]>([])
-  const [foods, setFoods] = useState<FoodState[]>([])
+  const [minimapPlayers, setMinimapPlayers] = useState<MinimapPlayer[]>([])
+  const [minimapFoods, setMinimapFoods] = useState<MinimapFoodCell[]>([])
   const [mapSize, setMapSize] = useState<number>(5000)
   const prevSnapshotRef = useRef<WsState | null>(null)
   const currSnapshotRef = useRef<WsState | null>(null)
@@ -39,24 +44,14 @@ function App() {
   const wsRef = useRef<WebSocket | null>(null)
   const [joinError, setJoinError] = useState<string | null>(null)
   const lastPings = useRef<Map<number, number>>(new Map())
-  const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const minimapRef = useRef<HTMLCanvasElement | null>(null)
   const phaserContainerRef = useRef<HTMLDivElement | null>(null)
   const phaserSceneRef = useRef<GameScene | null>(null)
   const [fps, setFps] = useState<number | null>(null)
-  const mousePos = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
-  const playerHistories = useRef<Map<string, Vector2[]>>(new Map())
   type Particle = { x: number; y: number; vx: number; vy: number; life: number; maxLife: number; size: number; color: string }
   const particlesRef = useRef<Particle[]>([])
   const roomIdRef = useRef<string | null>(roomId)
   const statusRef = useRef<typeof status>(status)
-
-  const radiusFromScore = (score: number) => Math.max(4, 6 + Math.sqrt(Math.max(0, score)) * 0.3)
-  const hashHue = (id: string) => {
-    let h = 0
-    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
-    return h % 360
-  }
 
   const wsUrlCandidates = useMemo(() => {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
@@ -96,7 +91,7 @@ function App() {
         }, 1500)
       }
     }
-    ws.onerror = (e) => {
+    ws.onerror = () => {
       setJoinError('WS_CONNECT_FAILED')
     }
     ws.onmessage = (event) => {
@@ -141,8 +136,8 @@ function App() {
           prevSnapshotRef.current = currSnapshotRef.current
           currSnapshotRef.current = msg
           setLeaderboard(msg.leaderboard)
-          setPlayers(msg.players)
-          setFoods(msg.foods)
+          setMinimapPlayers(msg.minimap?.players ?? [])
+          setMinimapFoods(msg.minimap?.foods ?? [])
           setMapSize(msg.mapSize)
           const scene = phaserSceneRef.current
           if (scene) scene.setSnapshot(msg as unknown as SceneWsState, playerId)
@@ -167,14 +162,11 @@ function App() {
   }, [status])
 
   useEffect(() => {
-    const onMove = (e: MouseEvent) => { mousePos.current = { x: e.clientX, y: e.clientY } }
     const onDown = (e: KeyboardEvent) => { if (e.code === 'Space') setBoosting(true) }
     const onUp = (e: KeyboardEvent) => { if (e.code === 'Space') setBoosting(false) }
-    window.addEventListener('mousemove', onMove)
     window.addEventListener('keydown', onDown)
     window.addEventListener('keyup', onUp)
     return () => {
-      window.removeEventListener('mousemove', onMove)
       window.removeEventListener('keydown', onDown)
       window.removeEventListener('keyup', onUp)
     }
@@ -270,14 +262,38 @@ function App() {
       const ny = (y + ms) / (2 * ms)
       return { x: nx * mini.width, y: (1 - ny) * mini.height }
     }
-    for (const p of players) {
+    // food density blobs
+    ctx.fillStyle = 'rgba(39, 174, 96, 0.55)'
+    for (const cell of minimapFoods) {
+      const pos = toMini(cell.x, cell.y)
+      const radius = Math.max(1.5, Math.sqrt(Math.max(0.1, cell.value)) * 0.8)
+      ctx.beginPath()
+      ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2)
+      ctx.fill()
+    }
+    // players everywhere on map
+    for (const p of minimapPlayers) {
       const pos = toMini(p.position.x, p.position.y)
-      ctx.fillStyle = p.id === playerId ? '#f1c40f' : '#3498db'
-      ctx.fillRect(pos.x - 2, pos.y - 2, 4, 4)
+      const baseSize = Math.max(1.8, Math.log10(1 + Math.max(0, p.score)) * 1.6)
+      if (p.id === playerId) {
+        ctx.fillStyle = '#f1c40f'
+        ctx.beginPath()
+        ctx.arc(pos.x, pos.y, baseSize + 1.5, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.fillStyle = '#d35400'
+        ctx.beginPath()
+        ctx.arc(pos.x, pos.y, baseSize, 0, Math.PI * 2)
+        ctx.fill()
+      } else {
+        ctx.fillStyle = '#3498db'
+        ctx.beginPath()
+        ctx.arc(pos.x, pos.y, baseSize, 0, Math.PI * 2)
+        ctx.fill()
+      }
     }
     ctx.strokeStyle = '#444'
     ctx.strokeRect(0.5, 0.5, mini.width - 1, mini.height - 1)
-  }, [players, mapSize, playerId])
+  }, [minimapPlayers, minimapFoods, mapSize, playerId])
 
   return (
     <>
