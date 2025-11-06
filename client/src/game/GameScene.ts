@@ -5,18 +5,30 @@ export type PlayerState = { id: string; name: string; score: number; position: V
 export type FoodState = { id: string; position: Vector2; value: number }
 export type MinimapFoodCell = { x: number; y: number; value: number; count: number }
 export type MinimapData = { players: PlayerState[]; foods: MinimapFoodCell[] }
-export type WsState = { t: 'state'; roomId: string; leaderboard: { id: string; name: string; score: number }[]; players: PlayerState[]; foods: FoodState[]; selfBody?: Vector2[]; mapSize: number; serverNow: number; minimap?: MinimapData }
+export type WsState = {
+  t: 'state'
+  roomId: string
+  leaderboard: { id: string; name: string; score: number }[]
+  players: PlayerState[]
+  foods: FoodState[]
+  selfBody?: Vector2[]
+  mapSize: number
+  bodyRadiusMultiplier?: number
+  bodyLengthMultiplier?: number
+  serverNow: number
+  minimap?: MinimapData
+}
 
 function computeZoom(score: number): number {
   const z = 1 / (1 + Math.sqrt(Math.max(0, score)) * 0.03)
   return Math.min(1, Math.max(0.3, z))
 }
 
-function computeRadius(score: number): number {
+function baseRadius(score: number): number {
   return 7 + Math.sqrt(Math.max(0, score)) * 0.45
 }
 
-function computeTargetLength(score: number): number {
+function baseTargetLength(score: number): number {
   return 160 + score * 2.8
 }
 
@@ -38,6 +50,12 @@ export default class GameScene extends Phaser.Scene {
   private grid!: Phaser.GameObjects.Graphics
   private trailGraphics!: Phaser.GameObjects.Graphics
   private smoothingLambda = 28 // stronger smoothing for high Hz updates
+  private debugMovement = false
+  private lastSnapshotLog = 0
+  private lastSelfLog = 0
+  private lastSmoothedPos: Vector2 | null = null
+  private radiusMultiplier = 1
+  private lengthMultiplier = 1
   
   // local snake reconstruction (for the local player only)
   private myPath: Vector2[] = []
@@ -46,6 +64,11 @@ export default class GameScene extends Phaser.Scene {
 
   constructor() {
     super(GameScene.KEY)
+    try {
+      this.debugMovement = new URLSearchParams(window.location.search).has('debugMovement')
+    } catch {
+      this.debugMovement = false
+    }
   }
 
   preload() {
@@ -78,10 +101,32 @@ export default class GameScene extends Phaser.Scene {
   }
 
   setSnapshot(s: WsState, playerId: string | null) {
+    if (this.latest && this.latest.serverNow === s.serverNow) {
+      this.latest = s
+      this.playerId = playerId
+      this.serverSelfBody = s.selfBody ? s.selfBody.slice().reverse().map(pt => ({ x: pt.x, y: pt.y })) : null
+      return
+    }
     this.previous = this.latest
     this.latest = s
     this.playerId = playerId
     this.serverSelfBody = s.selfBody ? s.selfBody.slice().reverse().map(pt => ({ x: pt.x, y: pt.y })) : null
+    if (this.debugMovement && playerId) {
+      const now = performance.now()
+      if (now - this.lastSnapshotLog > 200) {
+        const me = s.players.find(p => p.id === playerId)
+        console.log('[wormy] snapshot', {
+          dtFromPrev: this.previous ? s.serverNow - this.previous.serverNow : null,
+          players: s.players.length,
+          foods: s.foods.length,
+          score: me?.score ?? null,
+          position: me ? { ...me.position } : null,
+          serverNow: s.serverNow,
+          renderDelayMs: this.renderDelayMs
+        })
+        this.lastSnapshotLog = now
+      }
+    }
     // no immediate render; update() will interpolate at t - renderDelay
   }
 
@@ -120,7 +165,7 @@ export default class GameScene extends Phaser.Scene {
         this.playerSprites.set(p.id, sprite)
       }
       const isMe = p.id === this.playerId
-      const r = computeRadius(p.score)
+      const r = this.radiusForScore(p.score)
       sprite.setVisible(true)
       sprite.setDepth(isMe ? 10 : 5)
       sprite.setTint(isMe ? 0xff5252 : 0x00aaff)
@@ -136,6 +181,19 @@ export default class GameScene extends Phaser.Scene {
       }
       this.playerTargets.set(p.id, { x: targetX, y: targetY, score: p.score })
       playerIds.add(p.id)
+      if (this.debugMovement && p.id === this.playerId && sprite) {
+        const targetDist = Phaser.Math.Distance.Between(sprite.x, sprite.y, targetX, targetY)
+        if (targetDist > 220) {
+          console.log('[wormy] large target delta', {
+            sprite: { x: sprite.x, y: sprite.y },
+            target: { x: targetX, y: targetY },
+            score: p.score,
+            targetDist,
+            latestServerNow: this.latest?.serverNow,
+            renderDelayMs: this.renderDelayMs
+          })
+        }
+      }
     }
     // hide removed players
     for (const [id, spr] of this.playerSprites) {
@@ -208,7 +266,7 @@ export default class GameScene extends Phaser.Scene {
         }
       }
       // trim total path length to target
-      const targetLen = computeTargetLength(myTarget.score)
+      const targetLen = this.targetLengthForScore(myTarget.score)
       let accum = 0
       for (let i = 1; i < this.myPath.length; i++) {
         accum += Math.hypot(this.myPath[i].x - this.myPath[i - 1].x, this.myPath[i].y - this.myPath[i - 1].y)
@@ -226,7 +284,7 @@ export default class GameScene extends Phaser.Scene {
         pathToDraw = tmp
       }
       // stroke the body in one pass
-      const r = computeRadius(myTarget.score)
+      const r = this.radiusForScore(myTarget.score)
       this.trailGraphics.lineStyle(r * 1.6, 0xffaa00, 0.9)
       this.trailGraphics.beginPath()
       this.trailGraphics.moveTo(pathToDraw[0].x, pathToDraw[0].y)
@@ -255,7 +313,7 @@ export default class GameScene extends Phaser.Scene {
         }
       }
       let accumulated = 0
-      const target = computeTargetLength(t.score) * 0.75
+      const target = this.targetLengthForScore(t.score) * 0.75
       for (let i = 1; i < trail.length; i++) {
         accumulated += Math.hypot(trail[i].x - trail[i - 1].x, trail[i].y - trail[i - 1].y)
         if (accumulated > target) { trail.length = i; break }
@@ -263,7 +321,7 @@ export default class GameScene extends Phaser.Scene {
       if (trail.length > 120) trail.length = 120
       this.playerTrails.set(id, trail)
       const baseColor = 0x00aaff
-      const radius = computeRadius(t.score) * 1.2
+      const radius = this.radiusForScore(t.score) * 1.2
       this.trailGraphics.lineStyle(radius, baseColor, 0.28)
       this.trailGraphics.beginPath()
       this.trailGraphics.moveTo(head.x, head.y)
@@ -282,6 +340,14 @@ export default class GameScene extends Phaser.Scene {
     return { x: wp.x, y: wp.y }
   }
 
+  private radiusForScore(score: number): number {
+    return baseRadius(score) * Math.max(0.1, this.radiusMultiplier)
+  }
+
+  private targetLengthForScore(score: number): number {
+    return baseTargetLength(score) * Math.max(0.1, this.lengthMultiplier)
+  }
+
   update(_time: number, deltaMs: number): void {
     // ensure we populate targets and visuals every frame from latest snapshot
     this.renderNow()
@@ -296,6 +362,31 @@ export default class GameScene extends Phaser.Scene {
       if (id === this.playerId) {
         this.cameras.main.centerOn(spr.x, spr.y)
         this.cameras.main.setZoom(computeZoom(t.score))
+        if (this.debugMovement) {
+          const now = performance.now()
+          const prev = this.lastSmoothedPos
+          const dist = prev ? Phaser.Math.Distance.Between(prev.x, prev.y, spr.x, spr.y) : 0
+          if (dist > 160) {
+            console.log('[wormy] smoothed jump', {
+              from: prev,
+              to: { x: spr.x, y: spr.y },
+              target: { ...t },
+              dist,
+              renderDelayMs: this.renderDelayMs,
+              latestServerNow: this.latest?.serverNow
+            })
+          } else if (now - this.lastSelfLog > 500) {
+            console.log('[wormy] smoothed position', {
+              position: { x: spr.x, y: spr.y },
+              target: { ...t },
+              pendingPath: this.myPath.length,
+              renderDelayMs: this.renderDelayMs,
+              latestServerNow: this.latest?.serverNow
+            })
+            this.lastSelfLog = now
+          }
+          this.lastSmoothedPos = { x: spr.x, y: spr.y }
+        }
       }
     }
   }

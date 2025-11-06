@@ -2,7 +2,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
 type Snapshot = { t: 'snapshot'; roomId: string; players: { id: string; name: string; score: number; position: { x: number; y: number } }[] }
-type RoomConfig = { mapSize: number; maxPlayers: number; foodCoveragePercent: number; foodSpawnRatePerSecond: number; emptyRoomTtlSeconds: number }
+type RoomConfig = {
+  mapSize: number
+  maxPlayers: number
+  foodCoveragePercent: number
+  foodSpawnRatePerSecond: number
+  emptyRoomTtlSeconds: number
+  suctionRadiusMultiplier?: number
+  suctionStrengthMultiplier?: number
+  foodValueMultiplier?: number
+  foodNearPlayerTarget?: number
+  bodyRadiusMultiplier?: number
+  bodyLengthMultiplier?: number
+}
 
 function useAdminRooms(apiBase: string, token: string | null) {
   const [rooms, setRooms] = useState<{ id: string; players: number; maxPlayers: number; isClosed: boolean }[]>([])
@@ -45,7 +57,9 @@ function App() {
   const [banName, setBanName] = useState('')
   const [mapSize, setMapSize] = useState<number>(5000)
   const [defaultConfig, setDefaultConfig] = useState<RoomConfig | null>(null)
+  const [defaultConfigDraft, setDefaultConfigDraft] = useState<RoomConfig | null>(null)
   const [roomConfig, setRoomConfig] = useState<RoomConfig | null>(null)
+  const [roomConfigDraft, setRoomConfigDraft] = useState<RoomConfig | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const [logs, setLogs] = useState<{ ts: number; type: string; roomId?: string; playerId?: string; name?: string; details?: unknown }[]>([])
   const logsRef = useRef<HTMLDivElement | null>(null)
@@ -54,11 +68,22 @@ function App() {
   const apiBase = useMemo(() => `http://${location.hostname}:4000`, [])
   const { rooms, refetch } = useAdminRooms(apiBase, token)
   const stats = useAdminStats(apiBase, token)
+  const defaultDirty = useMemo(() => {
+    if (!defaultConfigDraft || !defaultConfig) return false
+    return JSON.stringify(defaultConfigDraft) !== JSON.stringify(defaultConfig)
+  }, [defaultConfigDraft, defaultConfig])
+  const roomDirty = useMemo(() => {
+    if (!roomConfigDraft || !roomConfig) return false
+    return JSON.stringify(roomConfigDraft) !== JSON.stringify(roomConfig)
+  }, [roomConfigDraft, roomConfig])
   const loadDefaultConfig = useCallback(async () => {
     if (!token) return
     const res = await fetch(`${apiBase}/admin/config/default`, { headers: { Authorization: `Bearer ${token}` } })
     const data = await res.json()
-    if (data?.config) setDefaultConfig(data.config)
+    if (data?.config) {
+      setDefaultConfig(data.config)
+      setDefaultConfigDraft(data.config)
+    }
   }, [apiBase, token])
 
   const connectWs = () => {
@@ -146,6 +171,7 @@ function App() {
       const data = await res.json()
       if (data?.config) {
         setRoomConfig(data.config)
+        setRoomConfigDraft(data.config)
         if (typeof data.config.mapSize === 'number') setMapSize(data.config.mapSize)
       }
     }
@@ -240,37 +266,109 @@ function App() {
         <Card title="Default config">
           <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 8, maxWidth: 520 }}>
             <label>mapSize</label>
-            <input type="number" value={defaultConfig?.mapSize ?? ''} onChange={(e) => {
-              const v = Number(e.target.value); if (!isNaN(v) && defaultConfig) setDefaultConfig({ ...defaultConfig, mapSize: v })
-            }} />
+            <input
+              type="number"
+              value={defaultConfigDraft?.mapSize ?? ''}
+              onChange={(e) => {
+                const v = Number(e.target.value)
+                if (!isNaN(v)) setDefaultConfigDraft((prev) => (prev ? { ...prev, mapSize: v } : prev))
+              }}
+            />
             <label>maxPlayers</label>
-            <input type="number" value={defaultConfig?.maxPlayers ?? ''} onChange={(e) => {
-              const v = Number(e.target.value); if (!isNaN(v) && defaultConfig) setDefaultConfig({ ...defaultConfig, maxPlayers: v })
-            }} />
+            <input
+              type="number"
+              value={defaultConfigDraft?.maxPlayers ?? ''}
+              onChange={(e) => {
+                const v = Number(e.target.value)
+                if (!isNaN(v)) setDefaultConfigDraft((prev) => (prev ? { ...prev, maxPlayers: v } : prev))
+              }}
+            />
             <label>foodCoveragePercent</label>
-            <input type="number" value={defaultConfig?.foodCoveragePercent ?? ''} onChange={(e) => {
-              const v = Number(e.target.value); if (!isNaN(v) && defaultConfig) setDefaultConfig({ ...defaultConfig, foodCoveragePercent: v })
-            }} />
+            <input
+              type="number"
+              value={defaultConfigDraft?.foodCoveragePercent ?? ''}
+              onChange={(e) => {
+                const v = Number(e.target.value)
+                if (!isNaN(v)) setDefaultConfigDraft((prev) => (prev ? { ...prev, foodCoveragePercent: v } : prev))
+              }}
+            />
             <label>foodSpawnRatePerSecond</label>
-            <input type="number" value={defaultConfig?.foodSpawnRatePerSecond ?? ''} onChange={(e) => {
-              const v = Number(e.target.value); if (!isNaN(v) && defaultConfig) setDefaultConfig({ ...defaultConfig, foodSpawnRatePerSecond: v })
-            }} />
+            <input
+              type="number"
+              value={defaultConfigDraft?.foodSpawnRatePerSecond ?? ''}
+              onChange={(e) => {
+                const v = Number(e.target.value)
+                if (!isNaN(v)) setDefaultConfigDraft((prev) => (prev ? { ...prev, foodSpawnRatePerSecond: v } : prev))
+              }}
+            />
             <label>emptyRoomTtlSeconds</label>
-            <input type="number" value={defaultConfig?.emptyRoomTtlSeconds ?? ''} onChange={(e) => {
-              const v = Number(e.target.value); if (!isNaN(v) && defaultConfig) setDefaultConfig({ ...defaultConfig, emptyRoomTtlSeconds: v })
-            }} />
+            <input
+              type="number"
+              value={defaultConfigDraft?.emptyRoomTtlSeconds ?? ''}
+              onChange={(e) => {
+                const v = Number(e.target.value)
+                if (!isNaN(v)) setDefaultConfigDraft((prev) => (prev ? { ...prev, emptyRoomTtlSeconds: v } : prev))
+              }}
+            />
+            <label>foodValueMultiplier</label>
+            <input
+              type="number"
+              step="0.1"
+              value={defaultConfigDraft?.foodValueMultiplier ?? 1}
+              onChange={(e) => {
+                const v = Number(e.target.value)
+                if (!isNaN(v)) setDefaultConfigDraft((prev) => (prev ? { ...prev, foodValueMultiplier: v } : prev))
+              }}
+            />
+            <label>foodNearPlayerTarget</label>
+            <input
+              type="number"
+              value={defaultConfigDraft?.foodNearPlayerTarget ?? 80}
+              onChange={(e) => {
+                const v = Number(e.target.value)
+                if (!isNaN(v)) setDefaultConfigDraft((prev) => (prev ? { ...prev, foodNearPlayerTarget: v } : prev))
+              }}
+            />
+            <label>bodyRadiusMultiplier</label>
+            <input
+              type="number"
+              step="0.1"
+              value={defaultConfigDraft?.bodyRadiusMultiplier ?? 1}
+              onChange={(e) => {
+                const v = Number(e.target.value)
+                if (!isNaN(v)) setDefaultConfigDraft((prev) => (prev ? { ...prev, bodyRadiusMultiplier: v } : prev))
+              }}
+            />
+            <label>bodyLengthMultiplier</label>
+            <input
+              type="number"
+              step="0.1"
+              value={defaultConfigDraft?.bodyLengthMultiplier ?? 1}
+              onChange={(e) => {
+                const v = Number(e.target.value)
+                if (!isNaN(v)) setDefaultConfigDraft((prev) => (prev ? { ...prev, bodyLengthMultiplier: v } : prev))
+              }}
+            />
           </div>
           <div style={{ marginTop: 8 }}>
-            <button onClick={async () => {
-              if (!token || !defaultConfig) return
-              const res = await fetch(`${apiBase}/admin/config/default`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                body: JSON.stringify(defaultConfig)
-              })
-              const data = await res.json()
-              if (data?.config) setDefaultConfig(data.config)
-            }}>Save default</button>
+            <button
+              onClick={async () => {
+                if (!token || !defaultConfigDraft) return
+                const res = await fetch(`${apiBase}/admin/config/default`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                  body: JSON.stringify(defaultConfigDraft)
+                })
+                const data = await res.json()
+                if (data?.config) {
+                  setDefaultConfig(data.config)
+                  setDefaultConfigDraft(data.config)
+                }
+              }}
+              disabled={!defaultConfigDraft || !defaultDirty}
+            >
+              Save default
+            </button>
             <button style={{ marginLeft: 8 }} onClick={() => { loadDefaultConfig() }}>Reload</button>
           </div>
           <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>Note: set emptyRoomTtlSeconds to 0 to keep empty rooms alive indefinitely.</div>
@@ -302,46 +400,64 @@ function App() {
           <Card title="Room config">
             <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 8, maxWidth: 520 }}>
               <label>mapSize</label>
-              <input type="number" value={roomConfig?.mapSize ?? ''} onChange={(e) => {
-                const v = Number(e.target.value); if (!isNaN(v) && roomConfig) { setRoomConfig({ ...roomConfig, mapSize: v }); setMapSize(v) }
+              <input type="number" value={roomConfigDraft?.mapSize ?? ''} onChange={(e) => {
+                const v = Number(e.target.value); if (!isNaN(v)) { setRoomConfigDraft((prev) => prev ? { ...prev, mapSize: v } : prev); setMapSize(v) }
               }} />
               <label>maxPlayers</label>
-              <input type="number" value={roomConfig?.maxPlayers ?? ''} onChange={(e) => {
-                const v = Number(e.target.value); if (!isNaN(v) && roomConfig) setRoomConfig({ ...roomConfig, maxPlayers: v })
+              <input type="number" value={roomConfigDraft?.maxPlayers ?? ''} onChange={(e) => {
+                const v = Number(e.target.value); if (!isNaN(v)) setRoomConfigDraft((prev) => prev ? { ...prev, maxPlayers: v } : prev)
               }} />
               <label>foodCoveragePercent</label>
-              <input type="number" value={roomConfig?.foodCoveragePercent ?? ''} onChange={(e) => {
-                const v = Number(e.target.value); if (!isNaN(v) && roomConfig) setRoomConfig({ ...roomConfig, foodCoveragePercent: v })
+              <input type="number" value={roomConfigDraft?.foodCoveragePercent ?? ''} onChange={(e) => {
+                const v = Number(e.target.value); if (!isNaN(v)) setRoomConfigDraft((prev) => prev ? { ...prev, foodCoveragePercent: v } : prev)
               }} />
               <label>foodSpawnRatePerSecond</label>
-              <input type="number" value={roomConfig?.foodSpawnRatePerSecond ?? ''} onChange={(e) => {
-                const v = Number(e.target.value); if (!isNaN(v) && roomConfig) setRoomConfig({ ...roomConfig, foodSpawnRatePerSecond: v })
+              <input type="number" value={roomConfigDraft?.foodSpawnRatePerSecond ?? ''} onChange={(e) => {
+                const v = Number(e.target.value); if (!isNaN(v)) setRoomConfigDraft((prev) => prev ? { ...prev, foodSpawnRatePerSecond: v } : prev)
               }} />
               <label>emptyRoomTtlSeconds</label>
-              <input type="number" value={roomConfig?.emptyRoomTtlSeconds ?? ''} onChange={(e) => {
-                const v = Number(e.target.value); if (!isNaN(v) && roomConfig) setRoomConfig({ ...roomConfig, emptyRoomTtlSeconds: v })
+              <input type="number" value={roomConfigDraft?.emptyRoomTtlSeconds ?? ''} onChange={(e) => {
+                const v = Number(e.target.value); if (!isNaN(v)) setRoomConfigDraft((prev) => prev ? { ...prev, emptyRoomTtlSeconds: v } : prev)
+              }} />
+              <label>foodValueMultiplier</label>
+              <input type="number" step="0.1" value={roomConfigDraft?.foodValueMultiplier ?? 1} onChange={(e) => {
+                const v = Number(e.target.value); if (!isNaN(v)) setRoomConfigDraft((prev) => prev ? { ...prev, foodValueMultiplier: v } : prev)
+              }} />
+              <label>foodNearPlayerTarget</label>
+              <input type="number" value={roomConfigDraft?.foodNearPlayerTarget ?? 80} onChange={(e) => {
+                const v = Number(e.target.value); if (!isNaN(v)) setRoomConfigDraft((prev) => prev ? { ...prev, foodNearPlayerTarget: v } : prev)
+              }} />
+              <label>bodyRadiusMultiplier</label>
+              <input type="number" step="0.1" value={roomConfigDraft?.bodyRadiusMultiplier ?? 1} onChange={(e) => {
+                const v = Number(e.target.value); if (!isNaN(v)) setRoomConfigDraft((prev) => prev ? { ...prev, bodyRadiusMultiplier: v } : prev)
+              }} />
+              <label>bodyLengthMultiplier</label>
+              <input type="number" step="0.1" value={roomConfigDraft?.bodyLengthMultiplier ?? 1} onChange={(e) => {
+                const v = Number(e.target.value); if (!isNaN(v)) setRoomConfigDraft((prev) => prev ? { ...prev, bodyLengthMultiplier: v } : prev)
               }} />
             </div>
             <div style={{ marginTop: 8 }}>
               <button onClick={async () => {
-                if (!token || !selectedRoom || !roomConfig) return
+                if (!token || !selectedRoom || !roomConfigDraft) return
                 const res = await fetch(`${apiBase}/admin/rooms/${selectedRoom}/config`, {
                   method: 'PATCH',
                   headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                  body: JSON.stringify(roomConfig)
+                  body: JSON.stringify(roomConfigDraft)
                 });
                 const data = await res.json();
                 if (data?.config) {
                   setRoomConfig(data.config)
+                  setRoomConfigDraft(data.config)
                   if (typeof data.config.mapSize === 'number') setMapSize(data.config.mapSize)
                 }
-              }}>Save config</button>
+              }} disabled={!roomConfigDraft || !roomDirty}>Save config</button>
               <button style={{ marginLeft: 8 }} onClick={async () => {
                 if (!token || !selectedRoom) return
                 const res = await fetch(`${apiBase}/admin/rooms/${selectedRoom}/config`, { headers: { Authorization: `Bearer ${token}` } })
                 const data = await res.json();
                 if (data?.config) {
                   setRoomConfig(data.config)
+                  setRoomConfigDraft(data.config)
                   if (typeof data.config.mapSize === 'number') setMapSize(data.config.mapSize)
                 }
               }}>Reload</button>

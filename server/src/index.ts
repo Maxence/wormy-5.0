@@ -89,6 +89,12 @@ type RoomConfig = {
   foodCoveragePercent: number; // percentage of map area covered by food mass
   foodSpawnRatePerSecond: number; // target rate
   emptyRoomTtlSeconds: number; // auto-close timer when no players
+  suctionRadiusMultiplier: number; // 0 disables suction, >1 extends reach
+  suctionStrengthMultiplier: number; // scales pull speed towards player
+  foodValueMultiplier: number; // scales the score gained from food
+  foodNearPlayerTarget: number; // desired count of food near each player
+  bodyRadiusMultiplier: number; // scales player visual radius
+  bodyLengthMultiplier: number; // scales player body length
 };
 
 type GameRoom = {
@@ -221,6 +227,12 @@ let DEFAULT_ROOM_CONFIG: RoomConfig = {
   foodCoveragePercent: 2,
   foodSpawnRatePerSecond: 200,
   emptyRoomTtlSeconds: 60,
+  suctionRadiusMultiplier: 1,
+  suctionStrengthMultiplier: 1,
+  foodValueMultiplier: 1,
+  foodNearPlayerTarget: 80,
+  bodyRadiusMultiplier: 1,
+  bodyLengthMultiplier: 1,
 };
 
 const roomManager = new RoomManager(DEFAULT_ROOM_CONFIG);
@@ -239,12 +251,16 @@ function distanceSquared(a: Vector2, b: Vector2): number {
   const dx = a.x - b.x; const dy = a.y - b.y; return dx*dx + dy*dy;
 }
 
-function computeRadius(score: number): number {
-  return 6 + Math.sqrt(Math.max(0, score)) * 0.6;
+function computeRadius(score: number, config: RoomConfig): number {
+  const base = 6 + Math.sqrt(Math.max(0, score)) * 0.6;
+  const mult = Math.max(0.1, config.bodyRadiusMultiplier ?? 1);
+  return base * mult;
 }
 
-function computeTargetLength(score: number): number {
-  return 120 + score * 2.5;
+function computeTargetLength(score: number, config: RoomConfig): number {
+  const base = 120 + score * 2.5;
+  const mult = Math.max(0.1, config.bodyLengthMultiplier ?? 1);
+  return base * mult;
 }
 
 function computeSpeed(score: number, boosting: boolean): number {
@@ -252,9 +268,11 @@ function computeSpeed(score: number, boosting: boolean): number {
   return boosting ? base * 1.55 : base;
 }
 
-function computeSuctionRadius(score: number): number {
-  // Suction range scales with size but capped to avoid far vacuuming
-  return Math.min(600, 120 + Math.sqrt(Math.max(0, score)) * 14);
+function computeSuctionRadius(score: number, config: RoomConfig): number {
+  const radiusMult = Math.max(0, config.suctionRadiusMultiplier ?? 1);
+  if (radiusMult <= 0) return 0;
+  const base = Math.min(600, 120 + Math.sqrt(Math.max(0, score)) * 14);
+  return Math.min(2000, base * radiusMult);
 }
 
 function computeMaxTurnRate(score: number): number {
@@ -549,7 +567,7 @@ setInterval(() => {
       player.position.x = Math.max(-room.config.mapSize, Math.min(room.config.mapSize, player.position.x + dx));
       player.position.y = Math.max(-room.config.mapSize, Math.min(room.config.mapSize, player.position.y + dy));
       player.bodyPoints.push({ x: player.position.x, y: player.position.y });
-      trimBodyToLength(player.bodyPoints, computeTargetLength(player.score));
+      trimBodyToLength(player.bodyPoints, computeTargetLength(player.score, room.config));
       if (player.boosting && player.score > 1) {
         player.score -= Math.max(0.1, Math.min(1.5, player.score * 0.002));
         if (Math.random() < 0.3) {
@@ -559,26 +577,30 @@ setInterval(() => {
     }
 
     // Food consumption + suction (attract nearby food)
-    const toKeep: Food[] = [];
-    for (const food of room.foods) {
-      let eaten = false;
-      for (const player of room.players.values()) {
-        const bodyR = computeRadius(player.score);
-        const suckR = computeSuctionRadius(player.score);
+      const toKeep: Food[] = [];
+      for (const food of room.foods) {
+        let eaten = false;
+        for (const player of room.players.values()) {
+        const bodyR = computeRadius(player.score, room.config);
+        const suckR = computeSuctionRadius(player.score, room.config);
         const dx = food.position.x - player.position.x;
         const dy = food.position.y - player.position.y;
         const d2 = dx*dx + dy*dy;
         // eat if touching body
         if (d2 <= bodyR * bodyR) {
-          player.score += food.value;
+          const gain = food.value * Math.max(0, room.config.foodValueMultiplier ?? 1);
+          player.score += gain;
           eaten = true; break;
         }
         // suction if in suction range
-        if (d2 <= suckR * suckR) {
+        if (suckR > 0 && d2 <= suckR * suckR) {
           const d = Math.max(1, Math.sqrt(d2));
-          const pull = Math.min(220, 140 + Math.sqrt(Math.max(0, player.score)) * 6);
-          food.position.x -= (dx / d) * (pull * dt);
-          food.position.y -= (dy / d) * (pull * dt);
+          const basePull = Math.min(220, 140 + Math.sqrt(Math.max(0, player.score)) * 6);
+          const pull = basePull * Math.max(0, room.config.suctionStrengthMultiplier ?? 1);
+          if (pull > 0) {
+            food.position.x -= (dx / d) * (pull * dt);
+            food.position.y -= (dy / d) * (pull * dt);
+          }
         }
       }
       if (!eaten) toKeep.push(food);
@@ -599,13 +621,13 @@ setInterval(() => {
     };
     for (let i = 0; i < playersArr.length; i++) {
       const a = playersArr[i];
-      const aR = computeRadius(a.score);
+      const aR = computeRadius(a.score, room.config);
       // NOTE: in slither-like games, self-collision does not kill. Skip self body checks.
       if (deaths.includes(a.id)) continue;
       for (let j = 0; j < playersArr.length; j++) {
         if (i === j) continue;
         const b = playersArr[j];
-        const bR = computeRadius(b.score);
+        const bR = computeRadius(b.score, room.config);
         // quick reject if heads are far apart
         const far2 = (aR + bR + 200) * (aR + bR + 200);
         if (distanceSquared(a.position, b.position) > far2) continue;
@@ -663,16 +685,17 @@ setInterval(() => {
       }
     }
     // Ensure some food near each player to avoid empty screen
+    const perPlayerFoodTarget = Math.max(0, room.config.foodNearPlayerTarget ?? 80);
     for (const p of room.players.values()) {
       let near = 0
       const radius = 1500
       const r2 = radius * radius
       for (const f of room.foods) {
         const dx = f.position.x - p.position.x; const dy = f.position.y - p.position.y
-        if (dx*dx + dy*dy <= r2) { near++; if (near >= 80) break }
+        if (dx*dx + dy*dy <= r2) { near++; if (near >= perPlayerFoodTarget) break }
       }
-      if (near < 80) {
-        const need = 80 - near
+      if (near < perPlayerFoodTarget) {
+        const need = perPlayerFoodTarget - near
         for (let i = 0; i < need; i++) {
           const angle = Math.random() * Math.PI * 2
           const dist = 900 + Math.random() * 600
@@ -756,6 +779,8 @@ setInterval(() => {
         foods: visibleFoods,
         selfBody,
         mapSize: room.config.mapSize,
+        bodyRadiusMultiplier: room.config.bodyRadiusMultiplier,
+        bodyLengthMultiplier: room.config.bodyLengthMultiplier,
         serverNow: now,
         minimap: minimapSnapshot,
       });
@@ -827,6 +852,12 @@ const RoomConfigSchema = z.object({
   foodCoveragePercent: z.number().min(0).max(50).optional(),
   foodSpawnRatePerSecond: z.number().min(0).max(10000).optional(),
   emptyRoomTtlSeconds: z.number().min(0).max(3600).optional(),
+  suctionRadiusMultiplier: z.number().min(0).max(5).optional(),
+  suctionStrengthMultiplier: z.number().min(0).max(5).optional(),
+  foodValueMultiplier: z.number().min(0).max(10).optional(),
+  foodNearPlayerTarget: z.number().min(0).max(400).optional(),
+  bodyRadiusMultiplier: z.number().min(0).max(10).optional(),
+  bodyLengthMultiplier: z.number().min(0).max(10).optional(),
 });
 
 app.get('/admin/rooms/:id/config', (req, res) => {

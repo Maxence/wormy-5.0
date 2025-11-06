@@ -16,6 +16,8 @@ type WsState = {
   players: PlayerState[]
   foods: FoodState[]
   mapSize: number
+  bodyRadiusMultiplier?: number
+  bodyLengthMultiplier?: number
   serverNow: number
   minimap?: { players: MinimapPlayer[]; foods: MinimapFoodCell[] }
 }
