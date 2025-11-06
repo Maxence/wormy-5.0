@@ -64,8 +64,15 @@ function App() {
   const particlesRef = useRef<Particle[]>([])
   const roomIdRef = useRef<string | null>(roomId)
   const statusRef = useRef<typeof status>(status)
+  const playerIdRef = useRef<string | null>(playerId)
   const mousePosRef = useRef<{ x: number; y: number }>({ x: window.innerWidth / 2, y: window.innerHeight / 2 })
   const lastAngleRef = useRef<number | null>(null)
+  const pendingHudRef = useRef<{
+    leaderboard: { id: string; name: string; score: number }[]
+    minimapPlayers: MinimapPlayer[]
+    minimapFoods: MinimapFoodCell[]
+    mapSize: number
+  } | null>(null)
 
   const wsUrlCandidates = useMemo(() => {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
@@ -132,7 +139,8 @@ function App() {
           setJoinError(anyMsg.error || 'JOIN_FAILED')
         } else if (msg.t === 'dead') {
           const snap = currSnapshotRef.current
-          const me = snap?.players.find(p => p.id === playerId)
+          const currentPlayerId = playerIdRef.current
+          const me = snap?.players.find(p => p.id === currentPlayerId)
           if (me) {
             for (let i = 0; i < 60; i++) {
               const a = Math.random() * Math.PI * 2
@@ -147,7 +155,7 @@ function App() {
             }
           }
           const scoreVal = me ? Math.round(me.score) : 0
-          const rankIndex = snap?.leaderboard?.findIndex?.(p => p.id === playerId) ?? -1
+          const rankIndex = snap?.leaderboard?.findIndex?.(p => p.id === currentPlayerId) ?? -1
           setDeathInfo({ score: scoreVal, rank: rankIndex >= 0 ? rankIndex + 1 : null })
           // show a brief banner or change status if needed
           setStatus('disconnected')
@@ -155,6 +163,7 @@ function App() {
           setPlayerId(null)
           setMinimapPlayers([])
           setMinimapFoods([])
+          pendingHudRef.current = null
           prevSnapshotRef.current = null
           currSnapshotRef.current = null
           setBoosting(false)
@@ -162,12 +171,14 @@ function App() {
         } else if (msg.t === 'state') {
           prevSnapshotRef.current = currSnapshotRef.current
           currSnapshotRef.current = msg
-          setLeaderboard(msg.leaderboard)
-          setMinimapPlayers(msg.minimap?.players ?? [])
-          setMinimapFoods(msg.minimap?.foods ?? [])
-          setMapSize(msg.mapSize)
+          pendingHudRef.current = {
+            leaderboard: msg.leaderboard,
+            minimapPlayers: msg.minimap?.players ?? [],
+            minimapFoods: msg.minimap?.foods ?? [],
+            mapSize: msg.mapSize
+          }
           const scene = phaserSceneRef.current
-          if (scene) scene.setSnapshot(msg as unknown as SceneWsState, playerId)
+          if (scene) scene.setSnapshot(msg as unknown as SceneWsState, playerIdRef.current)
         }
       } catch {}
     }
@@ -185,6 +196,10 @@ function App() {
   }, [roomId])
 
   useEffect(() => {
+    playerIdRef.current = playerId
+  }, [playerId])
+
+  useEffect(() => {
     statusRef.current = status
   }, [status])
 
@@ -195,14 +210,6 @@ function App() {
     window.addEventListener('mousemove', onMove)
     return () => window.removeEventListener('mousemove', onMove)
   }, [])
-
-  useEffect(() => {
-    if (!deathInfo || status === 'connected' || roomId || !playerName.trim()) return
-    const timer = setTimeout(() => {
-      if (!roomIdRef.current && statusRef.current !== 'connected') connectAndJoin()
-    }, 2000)
-    return () => clearTimeout(timer)
-  }, [deathInfo, status, roomId, playerName])
 
   useEffect(() => {
     const onDown = (e: KeyboardEvent) => { if (e.code === 'Space') setBoosting(true) }
@@ -306,6 +313,19 @@ function App() {
     return () => clearInterval(id)
   }, [])
 
+  useEffect(() => {
+    const id = setInterval(() => {
+      const pending = pendingHudRef.current
+      if (!pending) return
+      pendingHudRef.current = null
+      setLeaderboard(pending.leaderboard)
+      setMinimapPlayers(pending.minimapPlayers)
+      setMinimapFoods(pending.minimapFoods)
+      setMapSize(pending.mapSize)
+    }, 160)
+    return () => clearInterval(id)
+  }, [])
+
   // Draw minimap from latest snapshot
   useEffect(() => {
     const mini = minimapRef.current
@@ -318,7 +338,7 @@ function App() {
     const toMini = (x: number, y: number) => {
       const nx = (x + ms) / (2 * ms)
       const ny = (y + ms) / (2 * ms)
-      return { x: nx * mini.width, y: (1 - ny) * mini.height }
+      return { x: nx * mini.width, y: ny * mini.height }
     }
     // food density blobs
     ctx.fillStyle = 'rgba(39, 174, 96, 0.55)'
@@ -438,7 +458,7 @@ function App() {
         </div>
         {joinError && <div className="notice notice--error">Error: {joinError}</div>}
         <div className="hud-footer">
-          <span className="hud-tip">Auto-respawn after defeat • WS endpoint ws://{wsDisplayHost}/ws</span>
+          <span className="hud-tip">Click Play again after defeat • WS endpoint ws://{wsDisplayHost}/ws</span>
         </div>
       </div>
 
@@ -459,14 +479,20 @@ function App() {
               <strong>{deathInfo.score}</strong> points {deathInfo.rank ? `• Rank #${deathInfo.rank}` : null}
             </p>
             <div className="overlay-actions">
-              <button className="btn btn-primary" onClick={() => connectAndJoin()}>
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  setDeathInfo(null)
+                  connectAndJoin()
+                }}
+              >
                 Play again
               </button>
               <button className="btn btn-ghost" onClick={() => setDeathInfo(null)}>
                 Change name
               </button>
             </div>
-            <p className="overlay-tip">Auto respawn in 2 seconds…</p>
+            <p className="overlay-tip">Ready when you are — hit Play again to respawn.</p>
           </div>
         </div>
       )}
