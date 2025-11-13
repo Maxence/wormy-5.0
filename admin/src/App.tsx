@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
-type Snapshot = { t: 'snapshot'; roomId: string; players: { id: string; name: string; score: number; position: { x: number; y: number } }[] }
+type Snapshot = {
+  t: 'snapshot'
+  roomId: string
+  players: { id: string; name: string; score: number; position: { x: number; y: number } }[]
+  mapSize?: number
+  minimap?: { players: { id: string; name: string; score: number; position: { x: number; y: number } }[]; foods: { x: number; y: number; value: number; count: number }[] }
+}
 type RoomConfig = {
   mapSize: number
   maxPlayers: number
@@ -191,23 +197,61 @@ function App() {
     if (!ctx) return
     const width = canvas.width
     const height = canvas.height
-    ctx.clearRect(0, 0, width, height)
-    // world is [-mapSize, mapSize]
-    const worldToScreen = (x: number, y: number) => {
-      const nx = (x + mapSize) / (2 * mapSize)
-      const ny = (y + mapSize) / (2 * mapSize)
+    const effectiveMapSize = Math.max(1, snapshot.mapSize ?? mapSize ?? 5000)
+    const toScreen = (x: number, y: number) => {
+      const nx = (x + effectiveMapSize) / (2 * effectiveMapSize)
+      const ny = (y + effectiveMapSize) / (2 * effectiveMapSize)
       return { sx: nx * width, sy: (1 - ny) * height }
     }
-    // draw border
-    ctx.strokeStyle = '#888'
-    ctx.strokeRect(0, 0, width, height)
-    // draw players
-    for (const p of snapshot.players) {
-      const { sx, sy } = worldToScreen(p.position.x, p.position.y)
-      ctx.fillStyle = '#2e86de'
+    ctx.fillStyle = '#050505'
+    ctx.fillRect(0, 0, width, height)
+    // grid
+    ctx.strokeStyle = '#1d1d1d'
+    ctx.lineWidth = 1
+    const divisions = 8
+    const step = (2 * effectiveMapSize) / divisions
+    for (let i = 0; i <= divisions; i++) {
+      const world = -effectiveMapSize + i * step
+      const { sx: gx1, sy: gy1 } = toScreen(world, -effectiveMapSize)
+      const { sx: gx2, sy: gy2 } = toScreen(world, effectiveMapSize)
       ctx.beginPath()
-      ctx.arc(sx, sy, 3, 0, Math.PI * 2)
+      ctx.moveTo(gx1, gy1)
+      ctx.lineTo(gx2, gy2)
+      ctx.stroke()
+      const { sx: hx1, sy: hy1 } = toScreen(-effectiveMapSize, world)
+      const { sx: hx2, sy: hy2 } = toScreen(effectiveMapSize, world)
+      ctx.beginPath()
+      ctx.moveTo(hx1, hy1)
+      ctx.lineTo(hx2, hy2)
+      ctx.stroke()
+    }
+    // border
+    ctx.strokeStyle = '#555'
+    ctx.lineWidth = 2
+    ctx.strokeRect(0, 0, width, height)
+    // foods heatmap if available
+    const foods = snapshot.minimap?.foods ?? []
+    for (const cell of foods) {
+      const { sx, sy } = toScreen(cell.x, cell.y)
+      const radius = Math.max(1, Math.sqrt(Math.max(0.2, cell.value)) * 0.6)
+      ctx.fillStyle = 'rgba(39, 174, 96, 0.45)'
+      ctx.beginPath()
+      ctx.arc(sx, sy, radius, 0, Math.PI * 2)
       ctx.fill()
+    }
+    // players
+    const players = snapshot.players ?? []
+    ctx.font = '12px Inter, sans-serif'
+    ctx.textBaseline = 'bottom'
+    for (const p of players) {
+      const { sx, sy } = toScreen(p.position.x, p.position.y)
+      const radius = Math.max(3, Math.log10(10 + Math.max(0, p.score)) * 3)
+      ctx.fillStyle = '#ff4d4d'
+      ctx.beginPath()
+      ctx.arc(sx, sy, radius, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = '#ffffff'
+      ctx.fillText(`${p.name} (${Math.round(p.score)})`, sx + radius + 2, sy - radius - 2)
     }
   }, [snapshot, mapSize])
 
@@ -395,7 +439,7 @@ function App() {
           <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>Note: set emptyRoomTtlSeconds to 0 to keep empty rooms alive indefinitely.</div>
         </Card>
         <Card title={`Snapshot ${snapshot?.roomId ? '('+snapshot.roomId.slice(0,8)+')' : ''}`}>
-          <div style={{ marginBottom: 8 }}>Map size: {mapSize}</div>
+          <div style={{ marginBottom: 8 }}>Map size: {snapshot?.mapSize ?? mapSize}</div>
           <canvas ref={canvasRef} width={400} height={300} style={{ border: '1px solid #222', background: '#000', display: 'block', marginBottom: 8, width: '100%', height: 300 }} />
           <ol style={{ maxHeight: 200, overflow: 'auto' }}>
             {snapshot?.players?.slice(0, 50).map(p => (

@@ -840,8 +840,21 @@ setInterval(() => {
     if (!meta || clientWs.readyState !== clientWs.OPEN || !meta.subscribedRoomId) return;
     const room = roomManager.getRoom(meta.subscribedRoomId);
     if (!room) return;
-    const players = Array.from(room.players.values()).map((p) => ({ id: p.id, name: p.name, score: p.score, position: p.position }));
-    try { clientWs.send(JSON.stringify({ t: 'snapshot', roomId: room.id, players })); } catch {}
+    const players = Array.from(room.players.values()).map((p) => ({
+      id: p.id,
+      name: p.name,
+      score: Math.round(p.score),
+      position: { x: p.position.x, y: p.position.y }
+    }));
+    const minimap = room.minimapSnapshot ?? { players: [], foods: [] };
+    const payload = {
+      t: 'snapshot' as const,
+      roomId: room.id,
+      players,
+      mapSize: room.config.mapSize,
+      minimap,
+    };
+    try { clientWs.send(JSON.stringify(payload)); } catch {}
   });
 }, 1000);
 

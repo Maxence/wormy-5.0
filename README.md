@@ -63,6 +63,7 @@ Visit `http://localhost:5174` while the admin dev server is running:
 - Live stats panel with p95 tick, broadcast Hz, process memory, input rejection counters.
 - Live logs + WebSocket spectator view (top-down positions of every player).
 - Tweak magnetism via `suctionStrengthMultiplier` (overall pull) and `suctionCatchupMultiplier` (close-range chase speed) globally or per room.
+- Preview rooms using the canvas mini-map: foods appear as green heat spots and every player is plotted with name+score on the full map extent.
 
 ## Scripts
 
