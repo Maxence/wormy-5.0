@@ -306,6 +306,7 @@ const MAX_MINIMAP_FOOD_CELLS = 200;
 const MINIMAP_REFRESH_MS = 500;
 const INPUTS_PER_SECOND = 30;
 const INPUT_BUCKET_CAPACITY = 45;
+const CLIENT_PING_TIMEOUT_MS = 8000;
 
 function buildMinimapFoods(foods: Food[]): { x: number; y: number; value: number; count: number }[] {
   const cells = new Map<string, { cx: number; cy: number; value: number; count: number }>();
@@ -387,7 +388,7 @@ wss.on('connection', (ws: WebSocket) => {
     lastPingId: null,
     lastPingSentAt: null,
     rttMs: null,
-    lastPongAt: null,
+    lastPongAt: Date.now(),
     lastInputAt: null,
     lastMessageAt: Date.now(),
     inputAllowance: INPUT_BUCKET_CAPACITY,
@@ -512,9 +513,17 @@ setInterval(() => {
     if (client.readyState === client.OPEN) {
       const meta = wsToMeta.get(client);
       if (!meta) return;
+      if (meta.lastPongAt && now - meta.lastPongAt > CLIENT_PING_TIMEOUT_MS) {
+        try { client.close(4002, 'ping_timeout'); } catch {}
+        return;
+      }
       meta.lastPingId = pingId;
       meta.lastPingSentAt = now;
-      client.send(JSON.stringify({ t: 'ping', pingId }));
+      try {
+        client.send(JSON.stringify({ t: 'ping', pingId }));
+      } catch {
+        try { client.close(1011, 'ping_send_failed'); } catch {}
+      }
     }
   });
 }, 2000);
