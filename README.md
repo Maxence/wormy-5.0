@@ -43,6 +43,7 @@ Server environment variables:
 ## Controls & gameplay
 
 - **Mouse** – point in the direction you want to head. Steering is rate-limited server side.
+- **Keyboard** – use arrow keys or WASD for steering if you prefer not to move the mouse.
 - **Space** – boost speed at the cost of your length. Boosting leaves low-value pellets behind.
 - **Objective** – eat pellets (static, dropped, or bonus) to grow in length/thickness. Collide head-first into someone’s body to eliminate them and harvest their remains.
 

@@ -67,6 +67,8 @@ function App() {
   const playerIdRef = useRef<string | null>(playerId)
   const mousePosRef = useRef<{ x: number; y: number }>({ x: window.innerWidth / 2, y: window.innerHeight / 2 })
   const lastAngleRef = useRef<number | null>(null)
+  const keyboardDirRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
+  const keyboardStateRef = useRef({ up: false, down: false, left: false, right: false })
   const pendingHudRef = useRef<{
     leaderboard: { id: string; name: string; score: number }[]
     minimapPlayers: MinimapPlayer[]
@@ -217,8 +219,48 @@ function App() {
   }, [])
 
   useEffect(() => {
-    const onDown = (e: KeyboardEvent) => { if (e.code === 'Space') setBoosting(true) }
-    const onUp = (e: KeyboardEvent) => { if (e.code === 'Space') setBoosting(false) }
+    const recomputeKeyboardDir = () => {
+      const horiz = (keyboardStateRef.current.right ? 1 : 0) - (keyboardStateRef.current.left ? 1 : 0)
+      const vert = (keyboardStateRef.current.down ? 1 : 0) - (keyboardStateRef.current.up ? 1 : 0)
+      const len = Math.hypot(horiz, vert)
+      if (len > 0) keyboardDirRef.current = { x: horiz / len, y: vert / len }
+      else keyboardDirRef.current = { x: 0, y: 0 }
+    }
+    const handleDirectionalKey = (code: string, pressed: boolean): boolean => {
+      let handled = true
+      switch (code) {
+        case 'ArrowUp':
+        case 'KeyW':
+          keyboardStateRef.current.up = pressed
+          break
+        case 'ArrowDown':
+        case 'KeyS':
+          keyboardStateRef.current.down = pressed
+          break
+        case 'ArrowLeft':
+        case 'KeyA':
+          keyboardStateRef.current.left = pressed
+          break
+        case 'ArrowRight':
+        case 'KeyD':
+          keyboardStateRef.current.right = pressed
+          break
+        default:
+          handled = false
+      }
+      if (handled) recomputeKeyboardDir()
+      return handled
+    }
+    const onDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space') setBoosting(true)
+      const handled = handleDirectionalKey(e.code, true)
+      if (handled) e.preventDefault()
+    }
+    const onUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') setBoosting(false)
+      const handled = handleDirectionalKey(e.code, false)
+      if (handled) e.preventDefault()
+    }
     window.addEventListener('keydown', onDown)
     window.addEventListener('keyup', onUp)
     return () => {
@@ -242,7 +284,18 @@ function App() {
         }
       }
       let outAngle = lastAngleRef.current ?? 0
-      if (targetWorld && snap) {
+      const keyboardDir = keyboardDirRef.current
+      let usedKeyboard = false
+      if (keyboardDir.x !== 0 || keyboardDir.y !== 0) {
+        const raw = Math.atan2(keyboardDir.y, keyboardDir.x)
+        const prev = lastAngleRef.current ?? raw
+        const delta = normalizeAngle(raw - prev)
+        const smoothed = prev + delta * 0.45
+        lastAngleRef.current = smoothed
+        outAngle = smoothed
+        usedKeyboard = true
+      }
+      if (!usedKeyboard && targetWorld && snap) {
         const me = snap.players.find(p => p.id === playerId)
         if (me) {
           const raw = Math.atan2(targetWorld.y - me.position.y, targetWorld.x - me.position.x)
