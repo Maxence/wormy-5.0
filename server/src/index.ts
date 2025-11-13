@@ -255,7 +255,7 @@ function distanceSquared(a: Vector2, b: Vector2): number {
 }
 
 function computeRadius(score: number, config: RoomConfig): number {
-  const base = 6 + Math.sqrt(Math.max(0, score)) * 0.6;
+  const base = 7 + Math.pow(Math.max(0, score), 0.6) * 0.9;
   const mult = Math.max(0.1, config.bodyRadiusMultiplier ?? 1);
   return base * mult;
 }

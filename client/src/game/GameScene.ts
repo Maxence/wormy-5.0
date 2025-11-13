@@ -25,7 +25,7 @@ function computeZoom(score: number): number {
 }
 
 function baseRadius(score: number): number {
-  return 7 + Math.sqrt(Math.max(0, score)) * 0.45
+  return 7 + Math.pow(Math.max(0, score), 0.6) * 0.9
 }
 
 function baseTargetLength(score: number): number {
@@ -125,6 +125,8 @@ export default class GameScene extends Phaser.Scene {
     this.latest = s
     this.playerId = playerId
     this.serverSelfBody = s.selfBody ? s.selfBody.slice().reverse().map(pt => ({ x: pt.x, y: pt.y })) : null
+    if (typeof s.bodyRadiusMultiplier === 'number') this.radiusMultiplier = s.bodyRadiusMultiplier
+    if (typeof s.bodyLengthMultiplier === 'number') this.lengthMultiplier = s.bodyLengthMultiplier
     if (this.debugMovement && playerId) {
       const now = performance.now()
       if (now - this.lastSnapshotLog > 200) {
