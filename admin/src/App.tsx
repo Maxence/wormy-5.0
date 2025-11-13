@@ -329,6 +329,16 @@ function App() {
                 if (!isNaN(v)) setDefaultConfigDraft((prev) => (prev ? { ...prev, foodNearPlayerTarget: v } : prev))
               }}
             />
+            <label>suctionStrengthMultiplier</label>
+            <input
+              type="number"
+              step="0.1"
+              value={defaultConfigDraft?.suctionStrengthMultiplier ?? ''}
+              onChange={(e) => {
+                const v = Number(e.target.value)
+                if (!isNaN(v)) setDefaultConfigDraft((prev) => (prev ? { ...prev, suctionStrengthMultiplier: v } : prev))
+              }}
+            />
             <label>bodyRadiusMultiplier</label>
             <input
               type="number"
@@ -426,6 +436,10 @@ function App() {
               <label>foodNearPlayerTarget</label>
               <input type="number" value={roomConfigDraft?.foodNearPlayerTarget ?? 80} onChange={(e) => {
                 const v = Number(e.target.value); if (!isNaN(v)) setRoomConfigDraft((prev) => prev ? { ...prev, foodNearPlayerTarget: v } : prev)
+              }} />
+              <label>suctionStrengthMultiplier</label>
+              <input type="number" step="0.1" value={roomConfigDraft?.suctionStrengthMultiplier ?? ''} onChange={(e) => {
+                const v = Number(e.target.value); if (!isNaN(v)) setRoomConfigDraft((prev) => prev ? { ...prev, suctionStrengthMultiplier: v } : prev)
               }} />
               <label>bodyRadiusMultiplier</label>
               <input type="number" step="0.1" value={roomConfigDraft?.bodyRadiusMultiplier ?? 1} onChange={(e) => {

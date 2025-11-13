@@ -228,7 +228,7 @@ let DEFAULT_ROOM_CONFIG: RoomConfig = {
   foodSpawnRatePerSecond: 200,
   emptyRoomTtlSeconds: 60,
   suctionRadiusMultiplier: 1,
-  suctionStrengthMultiplier: 1,
+  suctionStrengthMultiplier: 0.6,
   foodValueMultiplier: 1,
   foodNearPlayerTarget: 80,
   bodyRadiusMultiplier: 1,
