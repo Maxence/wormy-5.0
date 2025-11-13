@@ -195,8 +195,18 @@ function App() {
     if (!canvas || !snapshot) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
-    const width = canvas.width
-    const height = canvas.height
+    const rect = canvas.getBoundingClientRect()
+    const dpr = window.devicePixelRatio || 1
+    const targetWidth = Math.max(1, Math.floor(rect.width * dpr))
+    const targetHeight = Math.max(1, Math.floor(rect.height * dpr))
+    if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+      canvas.width = targetWidth
+      canvas.height = targetHeight
+    }
+    ctx.save()
+    ctx.scale(dpr, dpr)
+    const width = rect.width
+    const height = rect.height
     const effectiveMapSize = Math.max(1, snapshot.mapSize ?? mapSize ?? 5000)
     const toScreen = (x: number, y: number) => {
       const nx = (x + effectiveMapSize) / (2 * effectiveMapSize)
@@ -212,17 +222,17 @@ function App() {
     const step = (2 * effectiveMapSize) / divisions
     for (let i = 0; i <= divisions; i++) {
       const world = -effectiveMapSize + i * step
-      const { sx: gx1, sy: gy1 } = toScreen(world, -effectiveMapSize)
-      const { sx: gx2, sy: gy2 } = toScreen(world, effectiveMapSize)
+      const v1 = toScreen(world, -effectiveMapSize)
+      const v2 = toScreen(world, effectiveMapSize)
       ctx.beginPath()
-      ctx.moveTo(gx1, gy1)
-      ctx.lineTo(gx2, gy2)
+      ctx.moveTo(v1.sx, v1.sy)
+      ctx.lineTo(v2.sx, v2.sy)
       ctx.stroke()
-      const { sx: hx1, sy: hy1 } = toScreen(-effectiveMapSize, world)
-      const { sx: hx2, sy: hy2 } = toScreen(effectiveMapSize, world)
+      const h1 = toScreen(-effectiveMapSize, world)
+      const h2 = toScreen(effectiveMapSize, world)
       ctx.beginPath()
-      ctx.moveTo(hx1, hy1)
-      ctx.lineTo(hx2, hy2)
+      ctx.moveTo(h1.sx, h1.sy)
+      ctx.lineTo(h2.sx, h2.sy)
       ctx.stroke()
     }
     // border
@@ -233,8 +243,8 @@ function App() {
     const foods = snapshot.minimap?.foods ?? []
     for (const cell of foods) {
       const { sx, sy } = toScreen(cell.x, cell.y)
-      const radius = Math.max(1, Math.sqrt(Math.max(0.2, cell.value)) * 0.6)
-      ctx.fillStyle = 'rgba(39, 174, 96, 0.45)'
+      const radius = Math.max(1.5, Math.sqrt(Math.max(0.2, cell.value)) * 0.7)
+      ctx.fillStyle = 'rgba(39, 174, 96, 0.55)'
       ctx.beginPath()
       ctx.arc(sx, sy, radius, 0, Math.PI * 2)
       ctx.fill()
@@ -242,17 +252,27 @@ function App() {
     // players
     const players = snapshot.players ?? []
     ctx.font = '12px Inter, sans-serif'
-    ctx.textBaseline = 'bottom'
-    for (const p of players) {
-      const { sx, sy } = toScreen(p.position.x, p.position.y)
-      const radius = Math.max(3, Math.log10(10 + Math.max(0, p.score)) * 3)
-      ctx.fillStyle = '#ff4d4d'
-      ctx.beginPath()
-      ctx.arc(sx, sy, radius, 0, Math.PI * 2)
-      ctx.fill()
-      ctx.fillStyle = '#ffffff'
-      ctx.fillText(`${p.name} (${Math.round(p.score)})`, sx + radius + 2, sy - radius - 2)
+    ctx.textBaseline = 'top'
+    ctx.fillStyle = '#ffffff'
+    if (players.length === 0) {
+      ctx.textAlign = 'center'
+      ctx.fillStyle = '#888'
+      ctx.fillText('No players in room', width / 2, height / 2 - 8)
+      ctx.fillText('Waiting for activity…', width / 2, height / 2 + 8)
+    } else {
+      ctx.textAlign = 'left'
+      for (const p of players) {
+        const { sx, sy } = toScreen(p.position.x, p.position.y)
+        const radius = Math.max(4, Math.log10(10 + Math.max(0, p.score)) * 3.5)
+        ctx.fillStyle = '#ff4d4d'
+        ctx.beginPath()
+        ctx.arc(sx, sy, radius, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.fillStyle = '#ffffff'
+        ctx.fillText(`${p.name} (${Math.round(p.score)})`, sx + radius + 4, sy - radius)
+      }
     }
+    ctx.restore()
   }, [snapshot, mapSize])
 
   const Card: React.FC<{ title: string; right?: React.ReactNode; children?: React.ReactNode }> = ({ title, right, children }) => (

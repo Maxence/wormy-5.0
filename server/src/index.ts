@@ -465,7 +465,6 @@ wss.on('connection', (ws: WebSocket) => {
           player.targetDirectionRad = normalizeAngle(msg.directionRad);
         }
         if (typeof msg.boosting === 'boolean') player.boosting = msg.boosting;
-        addLog({ ts: Date.now(), type: 'player_input', roomId: room.id, playerId: player.id, details: { directionRad: player.targetDirectionRad, boosting: player.boosting } });
         return;
       }
 
