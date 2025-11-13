@@ -107,11 +107,19 @@ export default class GameScene extends Phaser.Scene {
   }
 
   setSnapshot(s: WsState, playerId: string | null) {
-    if (this.latest && this.latest.serverNow === s.serverNow) {
-      this.latest = s
-      this.playerId = playerId
-      this.serverSelfBody = s.selfBody ? s.selfBody.slice().reverse().map(pt => ({ x: pt.x, y: pt.y })) : null
-      return
+    if (this.latest) {
+      if (s.serverNow < this.latest.serverNow) {
+        if (this.debugMovement) {
+          console.warn('[wormy] dropped out-of-order snapshot', { incoming: s.serverNow, latest: this.latest.serverNow })
+        }
+        return
+      }
+      if (s.serverNow === this.latest.serverNow) {
+        this.latest = s
+        this.playerId = playerId
+        this.serverSelfBody = s.selfBody ? s.selfBody.slice().reverse().map(pt => ({ x: pt.x, y: pt.y })) : null
+        return
+      }
     }
     this.previous = this.latest
     this.latest = s
@@ -181,7 +189,8 @@ export default class GameScene extends Phaser.Scene {
       let targetY = p.position.y
       const vel = this.playerVelocity.get(p.id)
       if (vel && this.latest) {
-        const extrapolateMs = Math.min(120, Date.now() - this.latest.serverNow + this.renderDelayMs)
+        const latencyMs = Date.now() - this.latest.serverNow
+        const extrapolateMs = Math.min(120, Math.max(0, latencyMs + this.renderDelayMs))
         targetX = p.position.x + vel.vx * extrapolateMs
         targetY = p.position.y + vel.vy * extrapolateMs
       }
