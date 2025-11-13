@@ -76,9 +76,10 @@ function App() {
 
   const wsUrlCandidates = useMemo(() => {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-    const hosts = ['127.0.0.1', 'localhost', location.hostname]
+    const hostCandidates = [location.hostname, 'localhost', '127.0.0.1'].filter((h): h is string => Boolean(h))
+    const uniqueHosts = Array.from(new Set(hostCandidates))
     const port = 4000
-    return hosts.map(h => `${proto}://${h}:${port}/ws`)
+    return uniqueHosts.map(h => `${proto}://${h}:${port}/ws`)
   }, [])
   const urlIndexRef = useRef(0)
 
@@ -93,7 +94,9 @@ function App() {
       return
     }
     setStatus('connecting')
-    const url = wsUrlCandidates[urlIndexRef.current % wsUrlCandidates.length]
+    setJoinError(null)
+    const attemptIndex = urlIndexRef.current % wsUrlCandidates.length
+    const url = wsUrlCandidates[attemptIndex]
     const ws = new WebSocket(url)
     wsRef.current = ws
     ws.onopen = () => {
@@ -113,7 +116,9 @@ function App() {
       }
     }
     ws.onerror = () => {
-      setJoinError('WS_CONNECT_FAILED')
+      if (wsUrlCandidates.length && ((attemptIndex + 1) % wsUrlCandidates.length === 0)) {
+        setJoinError('WS_CONNECT_FAILED')
+      }
     }
     ws.onmessage = (event) => {
       try {
