@@ -79,6 +79,7 @@ type Player = {
   directionRad: number;
   targetDirectionRad: number;
   boosting: boolean;
+  currentSpeed: number;
   ws: WebSocket;
   bodyPoints: Vector2[];
 };
@@ -91,6 +92,7 @@ type RoomConfig = {
   emptyRoomTtlSeconds: number; // auto-close timer when no players
   suctionRadiusMultiplier: number; // 0 disables suction, >1 extends reach
   suctionStrengthMultiplier: number; // scales pull speed towards player
+  suctionCatchupMultiplier: number; // extra speed so food can reach moving players
   foodValueMultiplier: number; // scales the score gained from food
   foodNearPlayerTarget: number; // desired count of food near each player
   bodyRadiusMultiplier: number; // scales player visual radius
@@ -229,6 +231,7 @@ let DEFAULT_ROOM_CONFIG: RoomConfig = {
   emptyRoomTtlSeconds: 60,
   suctionRadiusMultiplier: 1,
   suctionStrengthMultiplier: 0.6,
+  suctionCatchupMultiplier: 1.1,
   foodValueMultiplier: 1,
   foodNearPlayerTarget: 80,
   bodyRadiusMultiplier: 1,
@@ -414,6 +417,7 @@ wss.on('connection', (ws: WebSocket) => {
           directionRad: spawnDir,
           targetDirectionRad: spawnDir,
           boosting: false,
+          currentSpeed: computeSpeed(10, false),
           ws,
           bodyPoints: [{ x: spawnPos.x, y: spawnPos.y }],
         };
@@ -562,6 +566,7 @@ setInterval(() => {
       const maxTurn = computeMaxTurnRate(player.score) * dt;
       player.directionRad = rotateTowards(player.directionRad, player.targetDirectionRad, maxTurn);
       const speed = computeSpeed(player.score, player.boosting);
+      player.currentSpeed = speed;
       const dx = Math.cos(player.directionRad) * speed * dt;
       const dy = Math.sin(player.directionRad) * speed * dt;
       player.position.x = Math.max(-room.config.mapSize, Math.min(room.config.mapSize, player.position.x + dx));
@@ -596,10 +601,18 @@ setInterval(() => {
         if (suckR > 0 && d2 <= suckR * suckR) {
           const d = Math.max(1, Math.sqrt(d2));
           const basePull = Math.min(220, 140 + Math.sqrt(Math.max(0, player.score)) * 6);
-          const pull = basePull * Math.max(0, room.config.suctionStrengthMultiplier ?? 1);
+          const strengthMult = Math.max(0, room.config.suctionStrengthMultiplier ?? 1);
+          const catchupMult = Math.max(0, room.config.suctionCatchupMultiplier ?? 0);
+          const closeness = 1 - Math.min(1, d / Math.max(1, suckR));
+          let pull = basePull * strengthMult;
+          if (closeness > 0 && catchupMult > 0) {
+            const playerSpeed = player.currentSpeed ?? computeSpeed(player.score, player.boosting);
+            pull += playerSpeed * catchupMult * closeness;
+          }
           if (pull > 0) {
-            food.position.x -= (dx / d) * (pull * dt);
-            food.position.y -= (dy / d) * (pull * dt);
+            const step = pull * dt;
+            food.position.x -= (dx / d) * step;
+            food.position.y -= (dy / d) * step;
           }
         }
       }
@@ -854,6 +867,7 @@ const RoomConfigSchema = z.object({
   emptyRoomTtlSeconds: z.number().min(0).max(3600).optional(),
   suctionRadiusMultiplier: z.number().min(0).max(5).optional(),
   suctionStrengthMultiplier: z.number().min(0).max(5).optional(),
+  suctionCatchupMultiplier: z.number().min(0).max(5).optional(),
   foodValueMultiplier: z.number().min(0).max(10).optional(),
   foodNearPlayerTarget: z.number().min(0).max(400).optional(),
   bodyRadiusMultiplier: z.number().min(0).max(10).optional(),

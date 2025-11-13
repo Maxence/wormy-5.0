@@ -10,6 +10,7 @@ type RoomConfig = {
   emptyRoomTtlSeconds: number
   suctionRadiusMultiplier?: number
   suctionStrengthMultiplier?: number
+  suctionCatchupMultiplier?: number
   foodValueMultiplier?: number
   foodNearPlayerTarget?: number
   bodyRadiusMultiplier?: number
@@ -339,6 +340,16 @@ function App() {
                 if (!isNaN(v)) setDefaultConfigDraft((prev) => (prev ? { ...prev, suctionStrengthMultiplier: v } : prev))
               }}
             />
+            <label>suctionCatchupMultiplier</label>
+            <input
+              type="number"
+              step="0.1"
+              value={defaultConfigDraft?.suctionCatchupMultiplier ?? ''}
+              onChange={(e) => {
+                const v = Number(e.target.value)
+                if (!isNaN(v)) setDefaultConfigDraft((prev) => (prev ? { ...prev, suctionCatchupMultiplier: v } : prev))
+              }}
+            />
             <label>bodyRadiusMultiplier</label>
             <input
               type="number"
@@ -440,6 +451,10 @@ function App() {
               <label>suctionStrengthMultiplier</label>
               <input type="number" step="0.1" value={roomConfigDraft?.suctionStrengthMultiplier ?? ''} onChange={(e) => {
                 const v = Number(e.target.value); if (!isNaN(v)) setRoomConfigDraft((prev) => prev ? { ...prev, suctionStrengthMultiplier: v } : prev)
+              }} />
+              <label>suctionCatchupMultiplier</label>
+              <input type="number" step="0.1" value={roomConfigDraft?.suctionCatchupMultiplier ?? ''} onChange={(e) => {
+                const v = Number(e.target.value); if (!isNaN(v)) setRoomConfigDraft((prev) => prev ? { ...prev, suctionCatchupMultiplier: v } : prev)
               }} />
               <label>bodyRadiusMultiplier</label>
               <input type="number" step="0.1" value={roomConfigDraft?.bodyRadiusMultiplier ?? 1} onChange={(e) => {

@@ -61,7 +61,7 @@ Visit `http://localhost:5174` while the admin dev server is running:
 - Open/close rooms, edit room/default config (max players, map size, empty-room TTL, food density, bonus spawn rate).
 - Live stats panel with p95 tick, broadcast Hz, process memory, input rejection counters.
 - Live logs + WebSocket spectator view (top-down positions of every player).
-- Tweak magnetism via the `suctionStrengthMultiplier` field (lower values pull food more gently globally or room-by-room).
+- Tweak magnetism via `suctionStrengthMultiplier` (overall pull) and `suctionCatchupMultiplier` (close-range chase speed) globally or per room.
 
 ## Scripts
 
