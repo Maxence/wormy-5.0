@@ -47,6 +47,7 @@ export default class GameScene extends Phaser.Scene {
   private foodPoolSize = 400
   private dotTextureKey = 'dot'
   private pointerWorld: Vector2 = { x: 0, y: 0 }
+  private pointerScreen: Vector2 = { x: 0, y: 0 }
   private grid!: Phaser.GameObjects.Graphics
   private trailGraphics!: Phaser.GameObjects.Graphics
   private smoothingLambda = 28 // stronger smoothing for high Hz updates
@@ -90,11 +91,16 @@ export default class GameScene extends Phaser.Scene {
       this.foodBobs.push(bob)
     }
     this.cameras.main.setBackgroundColor('#0a0a0a')
+    const startScreen = { x: this.scale.width / 2, y: this.scale.height / 2 }
+    this.pointerScreen = { ...startScreen }
+    const startWorld = this.cameras.main.getWorldPoint(startScreen.x, startScreen.y)
+    this.pointerWorld = { x: startWorld.x, y: startWorld.y }
     this.grid = this.add.graphics()
     this.grid.setDepth(1)
     this.trailGraphics = this.add.graphics()
     this.trailGraphics.setDepth(4)
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
+      this.pointerScreen = { x: p.x, y: p.y }
       const wp = this.cameras.main.getWorldPoint(p.x, p.y)
       this.pointerWorld = { x: wp.x, y: wp.y }
     })
@@ -388,6 +394,11 @@ export default class GameScene extends Phaser.Scene {
           this.lastSmoothedPos = { x: spr.x, y: spr.y }
         }
       }
+    }
+    const ps = this.pointerScreen
+    if (ps) {
+      const wp = this.cameras.main.getWorldPoint(ps.x, ps.y)
+      this.pointerWorld = { x: wp.x, y: wp.y }
     }
   }
 }
